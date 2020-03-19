@@ -4,6 +4,7 @@ library(shiny)
 library(shinythemes)
 library(plotly) 
 library(DT)
+library(shinyjs)
  
 # control over mouse over values in plotly plot
 options(scipen = 999, digits = 1)
@@ -55,8 +56,8 @@ genCompData <- function(df, geo_level = "Country/Region", min_stat = "deaths",
     # calculate double_days
     group_by(location, stat) %>%
     mutate(double_days = date - date[
-      sapply(total, FUN = function(x) {
-        suppressWarnings(max(which(total <= x/2))) })]) %>%
+      sapply(1:length(total), FUN = function(i) {
+        suppressWarnings(max(which(total[1:i] <= total[i]/2))) })]) %>%
     ungroup() %>%
     gather(value_type, value, total, double_days)
 }
@@ -94,7 +95,7 @@ plotComps <- function(df, min_stat = "deaths", min_total = 10,
     {if (smooth_plots) geom_point(alpha = 0.2)} +
     # .multi_line false doesn't work with ggplotly
     facet_wrap(vars(stat, value_type), scales = "free", ncol = 2,
-               labeller = labeller(.multi_line = FALSE)) +
+               labeller = labeller(.multi_line = TRUE)) +
     # thematic things
     theme_minimal() +
     xlab(paste("Days since", min_stat, ">=", min_total)) +
@@ -102,6 +103,7 @@ plotComps <- function(df, min_stat = "deaths", min_total = 10,
 }
 
 ui <- fluidPage(
+  useShinyjs(),
   theme = shinytheme("lumen"),
   titlePanel("Covid-19 comparisons"),
   tags$a(
@@ -132,15 +134,20 @@ ui <- fluidPage(
       width = 3
     ),
     mainPanel(
-      tabsetPanel(type = "tabs",
-                  tabPanel("Plot", plotlyOutput("compPlot", height = "1600px")),
-                  tabPanel("Data", dataTableOutput("compData"),
-                           downloadButton("downloadCompData", "Download")))
+      tabsetPanel(
+        type = "tabs",
+        tabPanel(
+          "Plot", plotlyOutput(
+            "compPlot", width = "100%", height = "1600px")),
+        tabPanel(
+          "Data", dataTableOutput("compData"),
+          downloadButton("downloadCompData", "Download")))
     )
   )
 )
  
 server <- function(input, output) {
+  shinyjs::runjs("toggleCodePosition();")
   output$compPlot <- renderPlotly({
     joined %>% genCompData(min_total = input$min_total) %>%
       plotComps(min_total = input$min_total,
@@ -155,8 +162,7 @@ server <- function(input, output) {
       paste0("covid-comp-data-", Sys.Date(), ".csv")
     },
     content = function(file) {
-      write.csv(joined %>% genCompData(min_total = input$min_total), file)
-    
+      write_csv(joined %>% genCompData(min_total = input$min_total), file)
     }
   )
 }
