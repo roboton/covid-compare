@@ -1,6 +1,7 @@
-library(shiny)
 library(tidyverse)
 library(lubridate)
+library(shiny)
+library(shinythemes)
 library(plotly)
 
 options(scipen=999)
@@ -93,6 +94,7 @@ plotComps <- function(df, geo_level = "Country/Region", min_stat = "deaths",
 }
 
 ui <- fluidPage(
+  theme = shinytheme("lumen"),
   titlePanel("Covid-19 comparisons"),
   tags$a(
     href = "https://github.com/CSSEGISandData/COVID-19",
@@ -101,7 +103,7 @@ ui <- fluidPage(
     href = "https://ond3.com/exploratory.nb.html",
     target = "_blank", "[analysis]"),
   tags$a(
-    href = "https://github.com/roboton/covid-19_meta/tree/master/deathcomp",
+    href = "https://github.com/roboton/covid-19_meta/tree/master/covidcomp",
     target = "_blank", "[git]"),
   # Sidebar with a slider input for number of bins 
   sidebarLayout(
