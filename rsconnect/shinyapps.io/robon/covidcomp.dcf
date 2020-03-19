@@ -1,0 +1,12 @@
+name: covidcomp
+title: covidcomp
+username:
+account: robon
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 1964778
+bundleId: 2896705
+url: https://robon.shinyapps.io/covidcomp/
+when: 1584593251.13072
+asMultiple: FALSE
+asStatic: FALSE
