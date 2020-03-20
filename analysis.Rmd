@@ -1,0 +1,117 @@
+---
+title: "Covid Compare analysis"
+output: html_notebook
+---
+
+```{r message=FALSE, warning=FALSE}
+source("covidcomp_lib.R")
+```
+
+# Total counts and days to double
+
+```{r message=FALSE, warning=FALSE}
+joined <- readJoinJhuData()
+comp_data <- joined %>% genCompData()
+comp_data %>% plotComps()
+```
+
+# Demographics
+
+```{r}
+join_country <- function(df, join_data, by=c("Country/Region"="country")) {
+  df %>% left_join(
+    join_data %>%
+      mutate(country = case_when(
+        grepl("Bahamas", country) ~ "The Bahamas",
+        grepl("Gambia", country) ~ "Gambia, The",
+        grepl("Czech", country) ~ "Czechia",
+        grepl("Iran", country) ~ "Iran",
+        grepl("Ivoire", country) ~ "Cote d'Ivoire",
+        grepl("Brunei", country) ~ "Brunei",
+        grepl("Republic of Korea", country) ~ "Korea, South",
+        grepl("Korea, Rep.", country) ~ "Korea, South",
+        grepl("United Kingdom of", country) ~ "United Kingdom",
+        grepl("United States", country) ~ "US",
+        grepl("Viet", country) ~ "Vietnam",
+        grepl("Russia", country) ~ "Russia",
+        grepl("Bolivia", country) ~ "Bolivia",
+        grepl("Venezuela", country) ~ "Venezuela",
+        grepl("Tanzania", country) ~ "Tanzania",
+        grepl("Macedonia", country) ~ "North Macedonia",
+        grepl("Moldova", country) ~ "Moldova",
+        grepl("Egypt", country) ~ "Egypt",
+        grepl("Kyrgyz", country) ~ "Kyrgyzstan",
+        grepl("Slovak", country) ~ "Slovakia",
+        grepl("Vincent", country) ~ "Saint Vincent and the Grenadines",
+        grepl("Lucia", country) ~ "Saint Lucia",
+        grepl("Martin", country) ~ "Martinique",
+        # careful with Congo
+        country == "Democratic Republic of the Congo" |
+          country == "Congo, Dem. Rep." ~ "Congo (Kinshasa)",
+        country == "Congo" | country == "Congo, Rep." ~ "Congo (Brazzaville)",
+        TRUE ~ country)),
+    by = by)
+}
+```
+
+## World bank population data
+
+World bank data looks best.  Only two years old.
+
+```{r}
+demo_data <- joined %>%
+  group_by(`Country/Region`) %>%
+  summarise_at(vars(confirmed, deaths, recovered), max) %>%
+  join_country(
+    wb(indicator = "SP.POP.TOTL", startdate = 2018, enddate = 2018) %>%
+      rename(population = value) %>%
+      select(country, population)) %>%
+  mutate(population = case_when(
+    `Country/Region` == "Taiwan*" ~ 23780452,
+    `Country/Region` == "Cruise Ship" ~ 3711,
+    TRUE ~ population)) %>%
+  join_country(
+    wb(indicator = "SP.POP.65UP.TO.ZS", startdate = 2018, enddate = 2018) %>%
+      rename(pct_over_65 = value) %>%
+      select(country, pct_over_65)) %>%
+  mutate(confirmed_pct = confirmed * 100 / population,
+         deaths_pct = deaths * 100 / population,
+         recovered_pct = recovered * 100 / population) %>%
+  ungroup()
+
+demo_data %>% arrange(desc(deaths_pct), desc(deaths))
+
+demo_data %>%
+  arrange(desc(deaths_pct), desc(deaths)) %>%
+  head(15) %>%
+  mutate(`Country/Region` = reorder(`Country/Region`, desc(deaths_pct))) %>%
+  ggplot(aes(confirmed_pct, deaths_pct)) +
+  geom_point(aes(color = `Country/Region`)) +
+  geom_line(stat = "smooth", method = "lm", alpha = 0.2)
+
+demo_data %>%
+  arrange(desc(deaths_pct), desc(deaths)) %>%
+  head(15) %>%
+  mutate(`Country/Region` = reorder(`Country/Region`, desc(deaths_pct))) %>%
+  ggplot(aes(pct_over_65, deaths_pct)) +
+  geom_point(aes(color = `Country/Region`)) +
+  geom_line(stat = "smooth", method = "lm", alpha = 0.2)
+
+demo_data %>%
+  filter(!`Country/Region` %in% c("Cruise Ship", "San Marino", "Martinique")) %>%
+  arrange(desc(deaths_pct), desc(deaths)) %>%
+  head(15) %>%
+  mutate(`Country/Region` = reorder(`Country/Region`, desc(deaths_pct))) %>%
+  ggplot(aes(confirmed_pct, deaths_pct)) +
+  geom_point(aes(color = `Country/Region`)) +
+  geom_line(stat = "smooth", method = "lm", alpha = 0.2)
+
+demo_data %>%
+  filter(!`Country/Region` %in% c("Cruise Ship", "San Marino", "Martinique")) %>%
+  arrange(desc(deaths_pct), desc(deaths)) %>%
+  head(15) %>%
+  mutate(`Country/Region` = reorder(`Country/Region`, desc(deaths_pct))) %>%
+  ggplot(aes(pct_over_65, deaths_pct)) +
+  geom_point(aes(color = `Country/Region`)) +
+  geom_line(stat = "smooth", method = "lm", alpha = 0.2)
+```
