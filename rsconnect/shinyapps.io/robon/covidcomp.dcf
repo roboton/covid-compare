@@ -5,8 +5,8 @@ account: robon
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 1964778
-bundleId: 2897494
+bundleId: 2904482
 url: https://robon.shinyapps.io/covidcomp/
-when: 1584614380.00146
+when: 1584767938.62939
 asMultiple: FALSE
 asStatic: FALSE
