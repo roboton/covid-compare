@@ -7,7 +7,10 @@ library(DT)
 source("covidcomp_lib.R")
 
 # pull in data
-joined <- readJoinJhuData()
+joined <- readJoinJhuData() %>%
+  group_by(`Country/Region`) %>%
+  filter(sum(deaths) >= 20) %>% ungroup()
+last_update <- paste(now(), Sys.timezone())
  
 # control over mouse over values in plotly plot
 options(scipen = 999, digits = 1)
@@ -16,6 +19,7 @@ ui <- fluidPage(
   useShinyjs(),
   theme = shinytheme("lumen"),
   titlePanel("Covid-19 comparisons"),
+  tags$div(paste("Last updated:", last_update)),
   tags$a(
     href = "https://github.com/CSSEGISandData/COVID-19",
     target = "_blank", "[data]"),
@@ -41,40 +45,60 @@ ui <- fluidPage(
       # plot options
       checkboxInput("smooth_plots",
                     "Smooth plot values", value = TRUE), 
-      width = 3
+      width = 2
     ),
     mainPanel(
       tabsetPanel(
-        type = "tabs",
+        id = "plotTabs", type = "tabs",
         tabPanel(
-          "Plot", plotlyOutput(
+          "Global Plot", value = "Global",
+          plotlyOutput(
             "compPlot", width = "100%", height = "1600px")),
+        # tabPanel(
+        #   "Data", dataTableOutput("compData"),
+        #   downloadButton("downloadCompData", "Download")),
         tabPanel(
-          "Data", dataTableOutput("compData"),
-          downloadButton("downloadCompData", "Download")))
+          "US Plot", value = "US",
+          plotlyOutput(
+            "compPlotUS", width = "100%", height = "1600px"))
+        )
     )
   )
 )
  
-server <- function(input, output) {
+server <- function(input, output, session) {
   shinyjs::runjs("toggleCodePosition();")
+  observe({
+    updateSliderInput(session, "min_total",
+                      value = {if (input$plotTabs == "US") 2 else 10})
+  })
+  
   output$compPlot <- renderPlotly({
     joined %>% genCompData(min_total = input$min_total) %>%
       plotComps(min_total = input$min_total,
                 max_days_since = input$max_days_since,
                 smooth_plots = input$smooth_plots)
   })
-  output$compData <- renderDataTable({
-    joined %>% genCompData(min_total = input$min_total)
+  output$compPlotUS <- renderPlotly({
+    joined %>%
+      filter(`Country/Region` == "US") %>%
+      filter(!grepl(",", `Province/State`)) %>%
+      genCompData(geo_level = "Province/State", min_total = input$min_total) %>%
+      plotComps(min_total = input$min_total,
+                max_days_since = input$max_days_since,
+                smooth_plots = input$smooth_plots)
   })
-  output$downloadCompData <- downloadHandler(
-    filename = function() {
-      paste0("covid-comp-data-", Sys.Date(), ".csv")
-    },
-    content = function(file) {
-      write_csv(joined %>% genCompData(min_total = input$min_total), file)
-    }
-  )
+  # output$compData <- renderDataTable({
+  #   joined %>% genCompData(min_total = input$min_total)
+  # })
+  # output$downloadCompData <- downloadHandler(
+  #   filename = function() {
+  #     paste0("covid-comp-data-", Sys.Date(), ".csv")
+  #   },
+  #   content = function(file) {
+  #     write_csv(joined %>% genCompData(min_total = input$min_total), file)
+  #   }
+  # )
 }
 
 shinyApp(ui = ui, server = server)

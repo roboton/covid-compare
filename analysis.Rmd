@@ -59,6 +59,7 @@ join_country <- function(df, join_data, by=c("Country/Region"="country")) {
 World bank data looks best.  Only two years old.
 
 ```{r}
+library(wbstats)
 demo_data <- joined %>%
   group_by(`Country/Region`) %>%
   summarise_at(vars(confirmed, deaths, recovered), max) %>%
@@ -114,4 +115,35 @@ demo_data %>%
   ggplot(aes(pct_over_65, deaths_pct)) +
   geom_point(aes(color = `Country/Region`)) +
   geom_line(stat = "smooth", method = "lm", alpha = 0.2)
+
+demo_data %>%
+  filter(!`Country/Region` %in% c("Cruise Ship", "San Marino", "Martinique",
+                                  "Italy")) %>%
+  arrange(desc(deaths_pct), desc(deaths)) %>%
+  head(15) %>%
+  mutate(`Country/Region` = reorder(`Country/Region`, desc(deaths_pct))) %>%
+  ggplot(aes(pct_over_65, deaths_pct)) +
+  geom_point(aes(color = `Country/Region`)) +
+  geom_line(stat = "smooth", method = "lm", alpha = 0.2)
+
+
+demo_data %>%
+  filter(!`Country/Region` %in% c("Cruise Ship", "San Marino", "Martinique")) %>%
+  arrange(desc(deaths_pct), desc(deaths)) %>%
+  mutate(`Country/Region` = reorder(`Country/Region`, desc(deaths_pct))) %>%
+  ggplot(aes(pct_over_65, deaths_pct)) +
+  geom_point(aes(color = `Country/Region`)) +
+  geom_line(stat = "smooth", method = "lm", alpha = 0.2) +
+  theme(legend.position = "none")
 ```
+
+# Regional
+
+```{r}
+state_comp_data <- joined %>%
+  filter(`Country/Region` == "US") %>%
+  filter(!grepl(",", `Province/State`)) %>%
+  genCompData(geo_level = "Province/State", min_total = 2)
+state_comp_data %>% plotComps()
+```
+

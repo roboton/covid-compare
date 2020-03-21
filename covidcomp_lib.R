@@ -90,9 +90,11 @@ plotComps <- function(df, min_stat = "deaths", min_total = 10,
     # .multi_line false doesn't work with ggplotly
     facet_wrap(vars(stat, value_type), scales = "free", ncol = 2,
                labeller = labeller(.multi_line = TRUE)) +
+    # labelling
+    ggtitle(paste("Metrics since", min_stat, ">=", min_total)) +
+    xlab(paste("Days since", min_stat, ">=", min_total)) +
     # thematic things
     theme_minimal() +
-    xlab(paste("Days since", min_stat, ">=", min_total)) +
-    theme(legend.title = element_blank(), axis.title.y = element_blank())
+    theme(legend.title = element_blank(), axis.title.y = element_blank(),
+          plot.title = element_text(hjust = 0.5))
 }
- 
