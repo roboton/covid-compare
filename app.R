@@ -24,11 +24,14 @@ ui <- fluidPage(
     href = "https://github.com/CSSEGISandData/COVID-19",
     target = "_blank", "[data]"),
   tags$a(
-    href = "https://ond3.com/exploratory.nb.html",
+    href = "https://ond3.com/analysis.nb.html",
     target = "_blank", "[analysis]"),
   tags$a(
     href = "https://github.com/roboton/covid-19_meta/tree/master/covidcomp",
     target = "_blank", "[git]"),
+  tags$a(
+    href = "mailto:roberton@gmail.com",
+    target = "_blank", "[contact]"),
   sidebarLayout(
     sidebarPanel(
       # data options

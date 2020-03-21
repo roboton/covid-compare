@@ -1,6 +1,11 @@
 ---
 title: "Covid Compare analysis"
-output: html_notebook
+output:
+  html_notebook:
+    code_folding: hide
+    theme: lumen
+    toc: true
+    toc_float: true
 ---
 
 ```{r message=FALSE, warning=FALSE}
@@ -137,7 +142,7 @@ demo_data %>%
   theme(legend.position = "none")
 ```
 
-# Regional
+# US State-level
 
 ```{r}
 state_comp_data <- joined %>%
@@ -147,3 +152,26 @@ state_comp_data <- joined %>%
 state_comp_data %>% plotComps()
 ```
 
+## US State testing
+```{r}
+library(rvest)
+library(magrittr)
+test_html <- read_html("https://docs.google.com/spreadsheets/u/2/d/e/2PACX-1vRwAqp96T9sYYq2-i7Tj0pvTf6XVHjDSMIKBdZHXiCGGdNC0ypEU9NbngS8mxea55JuCFuua1MUeOj5/pubhtml#")
+
+state_tests <- test_html %>% html_nodes(".waffle") %>% extract2(4) %>%
+  html_table() %>% set_colnames(
+    c("row", "date", "state", "positive", "negative", "pending", "deaths",
+      "total tests")) %>%
+  filter(!row_number() %in% 1:2) %>% select(-row) %>%
+  mutate_at(vars(date), ymd) %>%
+  mutate_at(vars(-date, -state), ~ gsub(",", "", .)) %>%
+  mutate_at(vars(-date, -state), as.numeric)
+```
+
+```{r fig.height=24, fig.width=7}
+state_tests %>%
+  gather(stat, value, -date, -state) %>%
+  ggplot(aes(date, value, color = stat)) +
+  geom_line() +
+  facet_grid(vars(state), vars(stat), scales = "free_y")
+```
