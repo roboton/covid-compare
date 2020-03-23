@@ -8,4 +8,4 @@ Yet another Covid-19 dashboard, but why? I've been seeing all kinds of numbers b
 
 The analysis, code, data, and contact are all in the links above. Please feel free to get in touch.
 
-Data comes from the [JHU CSSE](https://coronavirus.jhu.edu/map.html) group who is amazing for making this available.
+Data comes from [JHU CSSE](https://coronavirus.jhu.edu/map.html) and the [Covid Tracking Project](https://covidtracking.com/) who are amazing for making this available.

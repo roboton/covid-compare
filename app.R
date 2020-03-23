@@ -5,11 +5,12 @@ library(plotly)
 library(DT)
 
 source("covidcomp_lib.R")
+min_us <- 5
+min_global <- 10
 
 # pull in data
-joined <- readJoinJhuData() %>%
-  group_by(`Country/Region`) %>%
-  filter(sum(deaths) >= 20) %>% ungroup()
+jhu <- fetchPrepJhuData()
+covtrack <- fetchPrepCovTrackData()
 
 last_update <- paste(now(), Sys.timezone())
  
@@ -49,22 +50,24 @@ ui <- fluidPage(
       # plot options
       checkboxInput("smooth_plots",
                     "Smooth plot values", value = TRUE), 
+      checkboxInput("scale_to_fit",
+                    "Scale to fit", value = TRUE), 
       width = 2
     ),
     mainPanel(
       tabsetPanel(
         id = "plotTabs", type = "tabs",
         tabPanel(
-          "Global Plot", value = "Global",
+          "Global", value = "Global",
           plotlyOutput(
             "compPlot", width = "100%", height = "1600px")),
-        # tabPanel(
-        #   "Data", dataTableOutput("compData"),
-        #   downloadButton("downloadCompData", "Download")),
         tabPanel(
-          "US Plot", value = "US",
+          "US", value = "US",
           plotlyOutput(
             "compPlotUS", width = "100%", height = "1600px"))
+        # tabPanel(
+        #   "Data", dataTableOutput("compData"),
+        #   downloadButton("downloadCompData", "Download"))
         )
     )
   )
@@ -74,28 +77,34 @@ server <- function(input, output, session) {
   shinyjs::runjs("toggleCodePosition();")
   observe({
     updateSliderInput(
-      session, "min_total", value = {if (input$plotTabs == "US") 2 else 10})
+      session, "min_total",
+      value = {if (input$plotTabs == "US") min_us else min_global})
   })
   
   output$compPlot <- renderPlotly({
-    #withProgress(message = 'Making plot', value = 0, {
-      joined %>% genCompData(min_total = input$min_total) %>%
+    withProgress(message = 'Making plot', value = 0, {
+      jhu %>% genCompData(min_total = input$min_total) %>%
+        # filter plots
+        filter(!(stat %in% c("cfr", "crr") & value_type == "double_days")) %>%
         plotComps(min_total = input$min_total,
                   max_days_since = input$max_days_since,
-                  smooth_plots = input$smooth_plots)
-    #})
+                  smooth_plots = input$smooth_plots,
+                  scale_to_fit = input$scale_to_fit)
+    })
   })
   output$compPlotUS <- renderPlotly({
-    #withProgress(message = 'Making plot', value = 0, {
-      joined %>%
-        filter(`Country/Region` == "US") %>%
-        filter(!grepl(",", `Province/State`)) %>%
-        genCompData(geo_level = "Province/State",
+    withProgress(message = 'Making plot', value = 0, {
+      covtrack %>%
+        genCompData(geo_level = "state", min_stat = "death",
                     min_total = input$min_total) %>%
+        # filter plots
+        filter(!stat %in% c("negative", "pending")) %>%
+        filter(!(endsWith(stat, "r") & value_type == "double_days")) %>%
         plotComps(min_total = input$min_total,
                   max_days_since = input$max_days_since,
-                  smooth_plots = input$smooth_plots)
-    #})
+                  smooth_plots = input$smooth_plots,
+                  scale_to_fit = input$scale_to_fit)
+    })
   })
   # output$compData <- renderDataTable({
   #   joined %>% genCompData(min_total = input$min_total)

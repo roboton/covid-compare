@@ -142,11 +142,8 @@ demo_data %>%
 # US State-level
 
 ```{r}
-state_data <- joined %>%
-  filter(`Country/Region` == "US") %>%
-  # bind_rows((.) %>% filter(`Country/Region` == "US") %>%
-  #             mutate('Province/State' = "All states")) %>%
-  filter(!grepl(",", `Province/State`)) 
+library(covid19us)
+get_states_daily()
 
 state_comp_data <- state_data %>%
   genCompData(geo_level = "Province/State", min_total = 2)
@@ -168,7 +165,8 @@ state_comp_data %>% plotComps()
 ```{r fig.height=20, fig.width=7}
 state_tests %>% select(-total) %>%
   group_by(state) %>%
-  summarise(positive_test_rate = sum(positive)/((sum(positive) + sum(negative)))) %>%
+  summarise(
+    positive_test_rate = sum(positive)/((sum(positive) + sum(negative)))) %>%
   arrange(desc(positive_test_rate))
 
 state_tests %>% select(-total) %>%
@@ -195,5 +193,7 @@ source("covidcomp_lib.R")
 states %>% select(-abb, -dateChecked_tests) %>%
   genCompData(geo_level = "Province/State", min_total = 2) %>%
   plotComps(min_total = 2, smooth_plots = TRUE, scale_to_fit = TRUE)
+
+
 ```
 
