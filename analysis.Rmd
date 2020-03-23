@@ -8,13 +8,10 @@ output:
     toc_float: true
 ---
 
-```{r message=FALSE, warning=FALSE}
-source("covidcomp_lib.R")
-```
-
 # Total counts and days to double
 
 ```{r message=FALSE, warning=FALSE}
+source("covidcomp_lib.R")
 joined <- readJoinJhuData()
 comp_data <- joined %>% genCompData()
 comp_data %>% plotComps()
@@ -145,33 +142,58 @@ demo_data %>%
 # US State-level
 
 ```{r}
-state_comp_data <- joined %>%
+state_data <- joined %>%
   filter(`Country/Region` == "US") %>%
-  filter(!grepl(",", `Province/State`)) %>%
+  # bind_rows((.) %>% filter(`Country/Region` == "US") %>%
+  #             mutate('Province/State' = "All states")) %>%
+  filter(!grepl(",", `Province/State`)) 
+
+state_comp_data <- state_data %>%
   genCompData(geo_level = "Province/State", min_total = 2)
 state_comp_data %>% plotComps()
 ```
 
 ## US State testing
+
 ```{r}
-library(rvest)
-library(magrittr)
-test_html <- read_html("https://docs.google.com/spreadsheets/u/2/d/e/2PACX-1vRwAqp96T9sYYq2-i7Tj0pvTf6XVHjDSMIKBdZHXiCGGdNC0ypEU9NbngS8mxea55JuCFuua1MUeOj5/pubhtml#")
+#library(rvest)
+#library(magrittr)
+#library(jsonlite)
 
-state_tests <- test_html %>% html_nodes(".waffle") %>% extract2(4) %>%
-  html_table() %>% set_colnames(
-    c("row", "date", "state", "positive", "negative", "pending", "deaths",
-      "total tests")) %>%
-  filter(!row_number() %in% 1:2) %>% select(-row) %>%
-  mutate_at(vars(date), ymd) %>%
-  mutate_at(vars(-date, -state), ~ gsub(",", "", .)) %>%
-  mutate_at(vars(-date, -state), as.numeric)
+(state_tests <- url("https://covidtracking.com/api/states/daily") %>%
+  jsonlite::fromJSON() %>%
+  mutate_at(vars(date), ymd))
 ```
 
-```{r fig.height=24, fig.width=7}
-state_tests %>%
-  gather(stat, value, -date, -state) %>%
-  ggplot(aes(date, value, color = stat)) +
-  geom_line() +
-  facet_grid(vars(state), vars(stat), scales = "free_y")
+```{r fig.height=20, fig.width=7}
+state_tests %>% select(-total) %>%
+  group_by(state) %>%
+  summarise(positive_test_rate = sum(positive)/((sum(positive) + sum(negative)))) %>%
+  arrange(desc(positive_test_rate))
+
+state_tests %>% select(-total) %>%
+  group_by(state) %>%
+  gather(stat, value, -date, -state)  %>%
+  mutate_at(vars(value), as.numeric) %>%
+  ggplot(aes(date, value, fill = stat)) +
+  geom_bar(stat = "identity") +
+  facet_grid(vars(state), scales = "free_y")
 ```
+
+
+```{r}
+states <- state_data %>%
+  left_join(state_abb_map, by = c("Province/State" = "name")) %>%
+  left_join(state_tests %>%
+              rename_at(vars(-date, -state), list(~ paste0(., "_tests"))),
+            by = c("abb" = "state", "date"))
+```
+
+
+```{r fig.height=20, message=FALSE, warning=FALSE}
+source("covidcomp_lib.R")
+states %>% select(-abb, -dateChecked_tests) %>%
+  genCompData(geo_level = "Province/State", min_total = 2) %>%
+  plotComps(min_total = 2, smooth_plots = TRUE, scale_to_fit = TRUE)
+```
+

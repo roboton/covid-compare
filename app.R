@@ -1,7 +1,7 @@
 library(shiny)
 library(shinythemes)
 library(shinyjs)
-library(plotly) 
+library(plotly)
 library(DT)
 
 source("covidcomp_lib.R")
@@ -10,6 +10,7 @@ source("covidcomp_lib.R")
 joined <- readJoinJhuData() %>%
   group_by(`Country/Region`) %>%
   filter(sum(deaths) >= 20) %>% ungroup()
+
 last_update <- paste(now(), Sys.timezone())
  
 # control over mouse over values in plotly plot
@@ -72,24 +73,29 @@ ui <- fluidPage(
 server <- function(input, output, session) {
   shinyjs::runjs("toggleCodePosition();")
   observe({
-    updateSliderInput(session, "min_total",
-                      value = {if (input$plotTabs == "US") 2 else 10})
+    updateSliderInput(
+      session, "min_total", value = {if (input$plotTabs == "US") 2 else 10})
   })
   
   output$compPlot <- renderPlotly({
-    joined %>% genCompData(min_total = input$min_total) %>%
-      plotComps(min_total = input$min_total,
-                max_days_since = input$max_days_since,
-                smooth_plots = input$smooth_plots)
+    #withProgress(message = 'Making plot', value = 0, {
+      joined %>% genCompData(min_total = input$min_total) %>%
+        plotComps(min_total = input$min_total,
+                  max_days_since = input$max_days_since,
+                  smooth_plots = input$smooth_plots)
+    #})
   })
   output$compPlotUS <- renderPlotly({
-    joined %>%
-      filter(`Country/Region` == "US") %>%
-      filter(!grepl(",", `Province/State`)) %>%
-      genCompData(geo_level = "Province/State", min_total = input$min_total) %>%
-      plotComps(min_total = input$min_total,
-                max_days_since = input$max_days_since,
-                smooth_plots = input$smooth_plots)
+    #withProgress(message = 'Making plot', value = 0, {
+      joined %>%
+        filter(`Country/Region` == "US") %>%
+        filter(!grepl(",", `Province/State`)) %>%
+        genCompData(geo_level = "Province/State",
+                    min_total = input$min_total) %>%
+        plotComps(min_total = input$min_total,
+                  max_days_since = input$max_days_since,
+                  smooth_plots = input$smooth_plots)
+    #})
   })
   # output$compData <- renderDataTable({
   #   joined %>% genCompData(min_total = input$min_total)

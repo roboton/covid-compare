@@ -9,15 +9,18 @@ readJoinJhuData <- function() {
   
   confirmed_ts <- read_csv(
     url(paste0(jhu_csse_uri, "time_series_19-covid-Confirmed.csv"))) %>%
-    gather(date, confirmed, -`Province/State`, -`Country/Region`, -Lat, -Long) %>%
+    gather(
+      date, confirmed, -`Province/State`, -`Country/Region`, -Lat, -Long) %>%
     mutate(date = mdy(date))
   deaths_ts <- read_csv(
     url(paste0(jhu_csse_uri, "time_series_19-covid-Deaths.csv"))) %>%
-    gather(date, deaths, -`Province/State`, -`Country/Region`, -Lat, -Long) %>%
+    gather(
+      date, deaths, -`Province/State`, -`Country/Region`, -Lat, -Long) %>%
     mutate(date = mdy(date))
   recovered_ts <- read_csv(
     url(paste0(jhu_csse_uri, "time_series_19-covid-Recovered.csv"))) %>%
-    gather(date, recovered, -`Province/State`, -`Country/Region`, -Lat, -Long) %>%
+    gather(
+      date, recovered, -`Province/State`, -`Country/Region`, -Lat, -Long) %>%
     mutate(date = mdy(date))
   
   # data prep
@@ -28,15 +31,16 @@ readJoinJhuData <- function() {
  
 # plot comps function
 genCompData <- function(df, geo_level = "Country/Region", min_stat = "deaths",
-                    min_total = 10) {
-    df %>%
+                        min_total = 10) {
+  df %>%
     # sum by location
     mutate(location = !!sym(geo_level)) %>%
+    select(-`Province/State`, -`Country/Region`, -Lat, -Long) %>%
     group_by(location, date) %>%
-    summarise_at(vars(confirmed, deaths, recovered), sum, na.rm = T) %>%
+    summarise_all(sum, na.rm = T) %>%
     # add cfr, consider other metrics
     mutate(cfr = deaths / confirmed, crr = recovered / confirmed) %>%
-    gather(stat, total, confirmed, deaths, recovered, cfr, crr) %>%
+    gather(stat, total, -location, -date) %>%
     # get max_total and first_date per location/stat
     group_by(location, stat) %>%
     mutate(max_total = max(total),
@@ -58,7 +62,7 @@ genCompData <- function(df, geo_level = "Country/Region", min_stat = "deaths",
 
 plotComps <- function(df, min_stat = "deaths", min_total = 10,
                       max_days_since = 20, min_days_since = 5,
-                      smooth_plots = FALSE) {
+                      smooth_plots = FALSE, scale_to_fit = TRUE) {
   df %>%
     # lazy filter for erroneous data
     filter(value >= 0) %>%
@@ -76,9 +80,15 @@ plotComps <- function(df, min_stat = "deaths", min_total = 10,
                           labels = c("Total count",
                                      "Days to double total count")),
       stat = factor(stat, levels = c("deaths", "confirmed", "recovered", "cfr",
-                                     "crr"),
+                                     "crr", "total_tests", "positive_tests",
+                                     "negative_tests", "pending_tests",
+                                     "hospitalization_tests",
+                                     "death_tests"),
                     labels = c("Deaths", "Confirmed cases", "Recovered cases",
-                               "Case fatality rate", "Case recovery rate"))) %>%
+                               "Case fatality rate", "Case recovery rate",
+                               "Total tests", "Positive tests",
+                               "Negative tests", "Pending tests",
+                               "Hospitalization tests", "Deaths (tests)"))) %>%
     # plot begins
     ggplot(aes(days_since, value, color = location)) +
     # no smoothing
@@ -88,7 +98,8 @@ plotComps <- function(df, min_stat = "deaths", min_total = 10,
                                  alpha = 0.8)} +
     {if (smooth_plots) geom_point(alpha = 0.2)} +
     # .multi_line false doesn't work with ggplotly
-    facet_wrap(vars(stat, value_type), scales = "free", ncol = 2,
+    facet_wrap(vars(stat, value_type), ncol = 2,
+               scales = {if (scale_to_fit) "free_y" else "fixed"},
                labeller = labeller(.multi_line = TRUE)) +
     # labelling
     ggtitle(paste("Metrics since", min_stat, ">=", min_total)) +
