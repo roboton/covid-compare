@@ -1,0 +1,82 @@
+---
+title: "Covid-19 Comparisons"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(plotly)
+source("../covidcomp_lib.R")
+
+min_us <- 5
+min_global <- 10
+max_days_since <- 30
+smooth_plots <- TRUE
+scale_to_fit <- TRUE
+
+# pull in data
+jhu <- fetchPrepJhuData()
+covtrack <- fetchPrepCovTrackData()
+
+last_update <- paste(now(), Sys.timezone())
+ 
+# control over mouse over values in plotly plot
+options(scipen = 999, digits = 1)
+```
+
+Global
+===================================== 
+
+Column {.tabset}
+-----------------------------------------------------------------------
+
+### Per million
+
+```{r message=FALSE, warning=FALSE}
+p <- jhu %>% genPlotComps(
+  geo_level = "country", min_thresh = 1, per_million = TRUE,
+  max_days_since = 30, smooth_plots = TRUE, scale_to_fit = TRUE,
+  min_stat = "deaths")
+suppressWarnings(ggplotly(p))
+```
+
+### Totals
+
+```{r message=FALSE, warning=FALSE}
+p <- jhu %>% genPlotComps(
+  geo_level = "country", min_thresh = 10, per_million = FALSE,
+  max_days_since = 30, smooth_plots = TRUE, scale_to_fit = TRUE)
+suppressWarnings(ggplotly(p))
+```
+
+US
+===================================== 
+
+Column {.tabset}
+-----------------------------------------------------------------------
+
+### Per million
+
+```{r message=FALSE, warning=FALSE}
+p <- covtrack %>% genPlotComps(
+  geo_level = "state", min_thresh = 1, per_million = TRUE,
+  max_days_since = 30, smooth_plots = TRUE, scale_to_fit = TRUE)
+suppressWarnings(ggplotly(p))
+```
+
+### Totals
+
+```{r message=FALSE, warning=FALSE}
+p <- covtrack %>% genPlotComps(
+  geo_level = "state", min_thresh = 5, per_million = FALSE,
+  max_days_since = 30, smooth_plots = TRUE, scale_to_fit = TRUE)
+suppressWarnings(ggplotly(p))
+```
+
+Interactive
+===================================== 
+
+[Roll your own comparison](https://robon.shinyapps.io/covidcomp/)

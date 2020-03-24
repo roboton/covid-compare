@@ -129,10 +129,10 @@ fetchPrepCovTrackData <- function() {
 
 # plot comps function
 genCompData <- function(df, geo_level = NA, min_stat = "deaths",
-                        min_thresh = NA, per_capita = TRUE) {
-  stat_col <- {if (per_capita) "popM" else "total"}
+                        min_thresh = NA, per_million = TRUE) {
+  stat_col <- {if (per_million) "popM" else "total"}
   if(is.na(min_thresh)) {
-    min_thresh <- {if (per_capita) 1 else 10}
+    min_thresh <- {if (per_million) 1 else 10}
   } 
  
   df %>%
@@ -163,7 +163,7 @@ genCompData <- function(df, geo_level = NA, min_stat = "deaths",
 plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
                       max_days_since = 20, min_days_since = 3,
                       smooth_plots = TRUE, scale_to_fit = TRUE,
-                      per_capita = TRUE) {
+                      per_million = TRUE) {
   df %>%
     # lazy filter for erroneous data
     filter(value >= 0) %>%
@@ -204,10 +204,10 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
                labeller = labeller(.multi_line = TRUE)) +
     # labelling
     ggtitle(paste0("Metrics since ", min_stat,
-                   {if (per_capita) " per million " else ""}, " >= ",
+                   {if (per_million) " per million " else ""}, " >= ",
                    min_thresh)) +
     xlab(paste0("Days since ", min_stat,
-                {if (per_capita) " per million " else ""}, " >= ",
+                {if (per_million) " per million " else ""}, " >= ",
                 min_thresh)) +
     # thematic things
     theme_minimal() +
@@ -218,9 +218,9 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
 genPlotComps <- function(
   df, min_stat = "deaths", geo_level = "country", min_thresh = 1,
   max_days_since = 30, min_days_since = 5, smooth_plots = TRUE,
-  scale_to_fit = TRUE, per_capita = TRUE) {
+  scale_to_fit = TRUE, per_million = TRUE) {
   df %>% genCompData(geo_level = geo_level, min_thresh = min_thresh,
-                     per_capita = per_capita, min_stat = min_stat) %>%
+                     per_million = per_million, min_stat = min_stat) %>%
     # filter plots
     filter(!stat %in% c("negative", "pending")) %>%
     filter(!(endsWith(stat, "r") & value_type == "double_days")) %>%
@@ -228,6 +228,6 @@ genPlotComps <- function(
     plotComps(
       min_thresh = min_thresh, max_days_since = max_days_since,
       smooth_plots = smooth_plots, min_stat = min_stat,
-      scale_to_fit = scale_to_fit, per_capita = per_capita,
+      scale_to_fit = scale_to_fit, per_million = per_million,
                      min_days_since = min_days_since)
 }

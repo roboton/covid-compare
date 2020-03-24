@@ -25,9 +25,9 @@ ui <- fluidPage(
   tags$a(
     href = "https://github.com/CSSEGISandData/COVID-19",
     target = "_blank", "[data]"),
-  tags$a(
-    href = "https://ond3.com/analysis.nb.html",
-    target = "_blank", "[analysis]"),
+  # tags$a(
+  #   href = "https://ond3.com/analysis.nb.html",
+  #   target = "_blank", "[analysis]"),
   tags$a(
     href = "https://github.com/roboton/covid-19_meta/tree/master/covidcomp",
     target = "_blank", "[git]"),
@@ -49,8 +49,8 @@ ui <- fluidPage(
                    "days since initial number of deaths/cases:",
                    min = 0, value = 30),
       # plot options
-      checkboxInput("per_capita",
-                    "Counts per capita", value = TRUE),
+      checkboxInput("per_million",
+                    "Counts per million", value = TRUE),
       checkboxInput("smooth_plots",
                     "Smooth plot values", value = TRUE), 
       checkboxInput("scale_to_fit",
@@ -87,7 +87,7 @@ server <- function(input, output, session) {
   
   suppressWarnings(output$compPlot <- renderPlotly({
     jhu %>% genPlotComps(geo_level = "country", min_thresh = input$min_thresh,
-                         per_capita = input$per_capita,
+                         per_million = input$per_million,
                          min_stat = input$min_stat,
                          max_days_since = input$max_days_since,
                          smooth_plots = input$smooth_plots,
@@ -95,7 +95,7 @@ server <- function(input, output, session) {
   suppressWarnings(output$compPlotUS <- renderPlotly({
     covtrack %>%
       genPlotComps(geo_level = "state", min_thresh = input$min_thresh,
-                   per_capita = input$per_capita,
+                   per_million= input$per_million,
                    min_stat = input$min_stat,
                    max_days_since = input$max_days_since,
                    smooth_plots = input$smooth_plots,
@@ -110,7 +110,7 @@ server <- function(input, output, session) {
     content = function(file) {
       write_csv(jhu %>% genCompData(
         geo_level = "country", min_thresh = input$min_thresh,
-        per_capita = input$per_capita, min_stat = input$min_stat), file)
+        per_million= input$per_million, min_stat = input$min_stat), file)
     }
   )
   output$downloadUSData <- downloadHandler(
@@ -120,7 +120,7 @@ server <- function(input, output, session) {
     content = function(file) {
       write_csv(covtrack %>% genCompData(
         geo_level = "state", min_thresh = input$min_thresh,
-        per_capita = input$per_capita, min_stat = input$min_stat), file)
+        per_million = input$per_million, min_stat = input$min_stat), file)
     }
   )
 }
