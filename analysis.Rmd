@@ -20,7 +20,7 @@ comp_data %>% plotComps()
 # Demographics
 
 ```{r}
-join_country <- function(df, join_data, by=c("Country/Region"="country")) {
+join_wb_country <- function(df, join_data, by=c("Country/Region"="country")) {
   df %>% left_join(
     join_data %>%
       mutate(country = case_when(
@@ -193,7 +193,32 @@ source("covidcomp_lib.R")
 states %>% select(-abb, -dateChecked_tests) %>%
   genCompData(geo_level = "Province/State", min_total = 2) %>%
   plotComps(min_total = 2, smooth_plots = TRUE, scale_to_fit = TRUE)
+```
 
+```{r}
+jhu <- fetchPrepJhuData()
+```
 
+```{r}
+source("covidcomp_lib.R")
+p <- fetchPrepJhuData() %>%
+  genCompData() %>% 
+  filter(location != "San Marino") %>%
+  plotComps()
+suppressWarnings(print(p))
+```
+
+```{r}
+```
+
+```{r}
+source("covidcomp_lib.R")
+covtrack <- fetchPrepCovTrackData()
+```
+```{r}
+p <- covtrack %>% genCompData(geo_level = "state", min_stat = "death", min_thresh = 1) %>%
+  plotComps()
+
+suppressWarnings(print(p))
 ```
 
