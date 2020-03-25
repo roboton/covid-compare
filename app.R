@@ -55,24 +55,25 @@ ui <- fluidPage(
                     "Smooth plot values", value = TRUE), 
       checkboxInput("scale_to_fit",
                     "Scale to fit", value = TRUE), 
-      width = 1),
+      width = 2),
     mainPanel(
       tabsetPanel(
         id = "plotTabs", type = "tabs",
         tabPanel(
           "Global", value = "Global",
-          plotlyOutput(
-            "compPlot", width = "100%", height = "1600px"),
+          suppressWarnings(plotlyOutput(
+            "compPlot", width = "100%", height = "1600px")),
             downloadButton("downloadGlobalData", "download")),
         tabPanel(
           "US", value = "US",
-          plotlyOutput(
-            "compPlotUS", width = "100%", height = "1600px"),
+          suppressWarnings(plotlyOutput(
+            "compPlotUS", width = "100%", height = "1600px")),
             downloadButton("downloadUSData", "download"))
         # tabPanel(
         #   "Data", dataTableOutput("compData"),
         #   downloadButton("downloadCompData", "Download"))
-        )
+        ),
+      width = 10
     )
   )
 )

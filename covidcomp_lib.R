@@ -4,6 +4,7 @@ library(covid19us)
 library(wbstats)
 library(tidycensus)
 census_api_key("8900c6e43b36c7974e390b41e93fc60a974afd8f")
+exclude_countries <- c("San Marino", "Guyana")
 
 join_wb_country <- function(df, join_data, by=c("Country/Region"="country")) {
   df %>% left_join(
@@ -91,7 +92,8 @@ fetchPrepJhuData <- function() {
     pivot_longer(c(-`Country/Region`, -date), names_to = c(".value", "stat"),
                  names_sep = "_") %>%
     rename(total = value,
-           country = `Country/Region`)
+           country = `Country/Region`) %>%
+    filter(!country %in% exclude_countries)
 }
  
 fetchPrepCovTrackData <- function() {
@@ -99,6 +101,8 @@ fetchPrepCovTrackData <- function() {
   covid19us::get_states_daily() %>%
     # drop unused vars
     select(-date_checked, -request_datetime) %>%
+    # remove new _increase vars
+    select_at(vars(-ends_with("_increase"), -total_test_results)) %>%
     gather(stat, total, -date, -state) %>%
     left_join(
       get_estimates("state", variables = "POP") %>%

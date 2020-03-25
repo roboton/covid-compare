@@ -39,7 +39,7 @@ Column {.tabset}
 p <- jhu %>% genPlotComps(
   geo_level = "country", min_thresh = 1, per_million = TRUE,
   max_days_since = 30, smooth_plots = TRUE, scale_to_fit = TRUE,
-  min_stat = "deaths")
+  min_stat = "deaths", min_days_since = 3)
 suppressWarnings(ggplotly(p))
 ```
 
