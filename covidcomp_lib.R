@@ -5,6 +5,8 @@ library(wbstats)
 library(tidycensus)
 census_api_key("8900c6e43b36c7974e390b41e93fc60a974afd8f")
 exclude_countries <- c("San Marino", "Guyana", "China", "Andorra", "Cabo Verde")
+default_countries <- c("US", "Spain", "Korea, South", "Italy", "China", "Iran",
+                       "CA", "LA", "NY", "NJ")
 
 join_wb_country <- function(df, join_data, by=c("Country/Region"="country")) {
   df %>% left_join(
@@ -183,7 +185,8 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
     mutate(
       value_type = factor(value_type,
                           levels = c("total", "popM", "double_days"),
-                          labels = c("Total count", "Total count per million",
+                          labels = c("Total count",
+                                     "Total count per million people",
                                      "Days to double total count")),
       stat = factor(stat, levels = c("deaths", "confirmed", #"recovered",
                                      "positive", "total",
@@ -210,10 +213,10 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
                labeller = labeller(.multi_line = TRUE)) +
     # labelling
     ggtitle(paste0("Metrics since ", min_stat,
-                   {if (per_million) " per million " else ""}, " >= ",
+                   {if (per_million) " per million people " else ""}, " >= ",
                    min_thresh)) +
     xlab(paste0("Days since ", min_stat,
-                {if (per_million) " per million " else ""}, " >= ",
+                {if (per_million) " per million people " else ""}, " >= ",
                 min_thresh)) +
     # thematic things
     theme_minimal() +
@@ -241,12 +244,12 @@ genPlotComps <- function(
 
 cleanPlotly <- function(p) {
   gp <- suppressWarnings(ggplotly(p))
-  gp$x$layout$hovermode <- "compare"
+  #gp$x$layout$hovermode <- "compare"
   sapply(names(gp$x$layout), FUN = function(x) {
     if (startsWith(x, "yaxis")) { gp$x$layout[[x]]$autorange <<- TRUE }
   }) 
   gp$x$data <- lapply(gp$x$data, FUN = function(x) {
-    x$visible <- ifelse(x$name %in% exclude_countries, "legendonly", TRUE)
+    x$visible <- ifelse(x$name %in% default_countries, TRUE, "legendonly")
     if (x$mode == "lines") {
       x$hoverinfo <- "none"
       x$text <- NA

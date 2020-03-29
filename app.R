@@ -53,11 +53,18 @@ ui <- fluidPage(
                    min = 0, value = 30),
       # plot options
       checkboxInput("per_million",
-                    "Counts per million", value = TRUE),
+                    "Counts per million people", value = TRUE),
       checkboxInput("smooth_plots",
                     "Smooth plot values", value = TRUE), 
       checkboxInput("scale_to_fit",
-                    "Scale to fit", value = TRUE), 
+                    "Scale to fit", value = TRUE),
+      h3("Why another dashboard?"),
+      p("Facts are useful, but in times like these they can also be overwhelming.  It can be helpful to organize these facts so they can provide perspective and focus our attention to the right places.  The plots on the right contain the same data that you've seen in other places but organizes them in two important ways:"),
+      p("(1) By default, the time series for each country/state begins on the day where each location had at least one death per million people in that location.  This is meant to calibrate each country/state so they can be compared at the same initial severity.  We choose deaths (vs cases) as our measure of severity because they are less sensitive to testing capacity as we assume that patients in more critical conditions are tested more uniformly than the population at large."),
+      p("(2) Days to double, the metric in the second column seeks to give us an intuitive measure of how quickly the measures in the first column are growing over time.  It is computed as the number of days it took to double the counts in the first column.  Pandemics are scary because of exponential growth, and days to double is relatively intuitive way of understanding that."),
+      p("Data from ", a(href = "https://coronavirus.jhu.edu/map.html", "JHU CSSE"),
+        " and ", a(href = "https://covidtracking.com/", "Covid Tracking Project"),
+        ". Great ideas from ", a(href = "https://twitter.com/loeserjohn", "John.")),
       width = 2),
     mainPanel(
       tabsetPanel(
@@ -66,16 +73,38 @@ ui <- fluidPage(
           "Global", value = "Global",
           plotlyOutput(
             "compPlot", width = "100%", height = "1600px"),
-            downloadButton("downloadGlobalData", "download")),
+            downloadButton("downloadGlobalData", "download")
+        ),
         tabPanel(
           "US", value = "US",
           plotlyOutput(
             "compPlotUS", width = "100%", height = "1600px"),
-            downloadButton("downloadUSData", "download"))
+            downloadButton("downloadUSData", "download")
+        ),
+        tabPanel(
+          "FAQ",
+          h4("Why does my country not show up here?"),
+          p("By default only countries that have one Covid-19 death per million people are shown.  Setting initial deaths to zero will show all countries."),
+          h4("How frequently does this update?"),
+          p("Daily."),
+          h4("Where does the data come from?"),
+          p(a(href = "https://coronavirus.jhu.edu/map.html", "John Hopkins CSSE"),
+            " for country data and the ",
+            a(href = "https://covidtracking.com/", "Covid Tracking Project."),
+            " for US state data."),
+          h4("When I unclick a country or a state, the plot moves. Why does that happen?"),
+          p("The y-axis scales to the minimum and maximum values displayed on the plot."),
+          h4("What does it mean for days to double to increase over time?"),
+          p("It's taking longer and longer for your counts to double - this is good for things we don't want like deaths and cases."),
+          h4("Why did you choose these countries and states?"),
+          p("The default countries are chosen for no good reason besides that they are often talked about in the press.  Please explore by clicking and unclicking the countries on the right.  Double-clicking a selected country will display only that country/state's plot."),
+          h4("What does the Download button do?"),
+          p("Downloads the data (in csv format) used for the set of plots displayed.")
+        )
         # tabPanel(
         #   "Data", dataTableOutput("compData"),
         #   downloadButton("downloadCompData", "Download"))
-        ),
+      ),
       width = 10
     )
   )
