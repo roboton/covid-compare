@@ -222,3 +222,83 @@ p <- covtrack %>% genCompData(geo_level = "state", min_stat = "death", min_thres
 suppressWarnings(print(p))
 ```
 
+# Corona Data Scraper project
+```{r}
+library(jsonlite)
+cds_data <- jsonlite::fromJSON("https://coronadatascraper.com/timeseries-byLocation.json")
+names(cds_data)
+```
+
+```{r}
+
+```
+
+```{r}
+library(tidyverse)
+ita <- cds_data[["ITA"]]
+names(ita)
+```
+
+```{r}
+cds_data %>% head(2)
+```
+```{r}
+sapply(cds_data, "[[", "dates") %>% unlist() %>% names() %>% gsub("^.*\\.", "", .) %>% table() 
+sapply(cds_data, names) %>% unlist %>% table %>% sort
+```
+
+```{r}
+valueOrNA <- function(x) {
+  ifelse(!is.null(x), x, NA)
+}
+
+getTsMax <- function(cds_loc, metric) {
+  suppressWarnings(max(as.numeric(sapply(
+    Filter(function(y) {!is.null(y[[metric]])}, cds_loc$dates), "[[", metric))))
+}
+
+names(cds_data) %>%
+  lapply(FUN = function(x) {
+    list(
+      name = x,
+      country = valueOrNA(cds_data[[x]]$country),
+      aggregate = valueOrNA(cds_data[[x]]$aggregate),
+      state = valueOrNA(cds_data[[x]]$state),
+      population = valueOrNA(cds_data[[x]]$population),
+      county = valueOrNA(cds_data[[x]]$county),
+      city = valueOrNA(cds_data[[x]]$city),
+      # aggregate =
+      #   ifelse(!is.null(cds_data[[x]]$aggregate), cds_data[[x]]$aggregate, NA),
+      # state =
+      #   ifelse(!is.null(cds_data[[x]]$state), cds_data[[x]]$state, NA),
+      # county =
+      #   ifelse(!is.null(cds_data[[x]]$county), cds_data[[x]]$county, NA),
+      # city =
+      #   ifelse(!is.null(cds_data[[x]]$city), cds_data[[x]]$ccity, NA),
+      # population =
+      #   ifelse(!is.null(cds_data[[x]]$population), cds_data[[x]]$population, NA),
+      max_deaths = getTsMax(cds_data[[x]], "deaths"),
+      max_cases = getTsMax(cds_data[[x]], "cases"),
+      max_tested = getTsMax(cds_data[[x]], "tested"),
+      max_active = getTsMax(cds_data[[x]], "active"),
+      max_recovered = getTsMax(cds_data[[x]], "recovered"))
+    }) %>%
+  bind_rows() %>% 
+  mutate(
+    max_deaths = na_if(max_deaths, -Inf),
+    max_cases = na_if(max_cases, -Inf),
+    max_tested = na_if(max_tested, -Inf),
+    max_active = na_if(max_active, -Inf),
+    max_recovered = na_if(max_recovered, -Inf)) %>%
+  mutate(
+    deaths_per_capita = max_deaths / population * 1e6,
+    tested_per_capita = max_tested / population * 1e6,
+    recovered_per_capita = max_recovered / population * 1e6,
+    positive_test_rate = max_cases / max_tested) %>%
+  arrange(-deaths_per_capita) %>%
+  filter(between(population, 1e5, Inf)) %>%
+  select_at(vars(-starts_with("max_"))) %>%
+  DT::datatable()
+  
+```
+

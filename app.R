@@ -1,6 +1,7 @@
 library(shiny)
 library(shinythemes)
 library(shinyjs)
+library(shinybusy)
 library(plotly)
 library(DT)
 
@@ -18,7 +19,8 @@ last_update <- paste(now(), Sys.timezone())
 options(scipen = 999, digits = 1)
 
 ui <- fluidPage(
-  useShinyjs(),
+  useShinyjs(), # for moving showcase code to the bottom
+  add_busy_bar(color = "CornflowerBlue", centered = TRUE, height = "10px"),
   theme = shinytheme("lumen"),
   titlePanel("Covid-19 comparisons"),
   tags$div(paste("Last updated:", last_update)),
@@ -26,8 +28,8 @@ ui <- fluidPage(
     href = "https://github.com/CSSEGISandData/COVID-19",
     target = "_blank", "[data]"),
   # tags$a(
-  #   href = "https://ond3.com/analysis.nb.html",
-  #   target = "_blank", "[analysis]"),
+  #   href = "https://robon.shinyapps.io/covidcomp/?showcase=1",
+  #   target = "_blank", "[showcase]"),
   tags$a(
     href = "https://github.com/roboton/covid-19_meta/tree/master/covidcomp",
     target = "_blank", "[git]"),
@@ -61,13 +63,13 @@ ui <- fluidPage(
         id = "plotTabs", type = "tabs",
         tabPanel(
           "Global", value = "Global",
-          suppressWarnings(plotlyOutput(
-            "compPlot", width = "100%", height = "1600px")),
+          plotlyOutput(
+            "compPlot", width = "100%", height = "1600px"),
             downloadButton("downloadGlobalData", "download")),
         tabPanel(
           "US", value = "US",
-          suppressWarnings(plotlyOutput(
-            "compPlotUS", width = "100%", height = "1600px")),
+          plotlyOutput(
+            "compPlotUS", width = "100%", height = "1600px"),
             downloadButton("downloadUSData", "download"))
         # tabPanel(
         #   "Data", dataTableOutput("compData"),
@@ -86,21 +88,24 @@ server <- function(input, output, session) {
   #     value = {if (input$plotTabs == "US") min_us else min_global})
   # })
   
-  suppressWarnings(output$compPlot <- renderPlotly({
-    jhu %>% genPlotComps(geo_level = "country", min_thresh = input$min_thresh,
-                         per_million = input$per_million,
-                         min_stat = input$min_stat,
-                         max_days_since = input$max_days_since,
-                         smooth_plots = input$smooth_plots,
-                         scale_to_fit = input$scale_to_fit) }))
-  suppressWarnings(output$compPlotUS <- renderPlotly({
-    covtrack %>%
-      genPlotComps(geo_level = "state", min_thresh = input$min_thresh,
-                   per_million= input$per_million,
+  output$compPlot <- renderPlotly({
+    jhu %>%
+      genPlotComps(geo_level = "country",
+                   min_thresh = input$min_thresh,
+                   per_million = input$per_million,
                    min_stat = input$min_stat,
                    max_days_since = input$max_days_since,
                    smooth_plots = input$smooth_plots,
-                   scale_to_fit = input$scale_to_fit) }))
+                   scale_to_fit = input$scale_to_fit) })
+  output$compPlotUS <- renderPlotly({
+    covtrack %>%
+      genPlotComps(geo_level = "state",
+                   min_thresh = input$min_thresh,
+                   per_million = input$per_million,
+                   min_stat = input$min_stat,
+                   max_days_since = input$max_days_since,
+                   smooth_plots = input$smooth_plots,
+                   scale_to_fit = input$scale_to_fit) })
   # output$compData <- renderDataTable({
   #   joined %>% genCompData(min_thresh = input$min_thresh)
   # })

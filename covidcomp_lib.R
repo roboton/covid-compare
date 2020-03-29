@@ -104,6 +104,7 @@ fetchPrepCovTrackData <- function() {
     # remove new _increase vars
     select_at(vars(-ends_with("_increase"), -total_test_results)) %>%
     gather(stat, total, -date, -state) %>%
+    mutate(total = as.numeric(total)) %>%
     left_join(
       get_estimates("state", variables = "POP") %>%
         left_join(tibble(state = state.abb, NAME = state.name),
@@ -233,5 +234,18 @@ genPlotComps <- function(
       min_thresh = min_thresh, max_days_since = max_days_since,
       smooth_plots = smooth_plots, min_stat = min_stat,
       scale_to_fit = scale_to_fit, per_million = per_million,
-                     min_days_since = min_days_since)
+                     min_days_since = min_days_since) %>%
+    cleanPlotly()
+}
+
+cleanPlotly <- function(p) {
+  gp <- suppressWarnings(ggplotly(p))
+  gp$x$data <- lapply(gp$x$data, FUN = function(x) {
+    if (x$mode == "lines") {
+      x$hoverinfo <- "none"
+      x$text <- NA;
+    }
+    return(x)
+  })
+  return(gp)
 }
