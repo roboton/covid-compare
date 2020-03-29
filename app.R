@@ -20,7 +20,8 @@ options(scipen = 999, digits = 1)
 
 ui <- fluidPage(
   useShinyjs(), # for moving showcase code to the bottom
-  add_busy_bar(color = "CornflowerBlue", centered = TRUE, height = "10px"),
+  add_busy_bar(color = "CornflowerBlue", timeout = 800, centered = TRUE,
+               height = "10px"),
   theme = shinytheme("lumen"),
   titlePanel("Covid-19 comparisons"),
   tags$div(paste("Last updated:", last_update)),

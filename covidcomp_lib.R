@@ -4,7 +4,7 @@ library(covid19us)
 library(wbstats)
 library(tidycensus)
 census_api_key("8900c6e43b36c7974e390b41e93fc60a974afd8f")
-exclude_countries <- c("San Marino", "Guyana")
+exclude_countries <- c("San Marino", "Guyana", "China")
 
 join_wb_country <- function(df, join_data, by=c("Country/Region"="country")) {
   df %>% left_join(
@@ -92,8 +92,7 @@ fetchPrepJhuData <- function() {
     pivot_longer(c(-`Country/Region`, -date), names_to = c(".value", "stat"),
                  names_sep = "_") %>%
     rename(total = value,
-           country = `Country/Region`) %>%
-    filter(!country %in% exclude_countries)
+           country = `Country/Region`)
 }
  
 fetchPrepCovTrackData <- function() {
@@ -102,7 +101,8 @@ fetchPrepCovTrackData <- function() {
     # drop unused vars
     select(-date_checked, -request_datetime) %>%
     # remove new _increase vars
-    select_at(vars(-ends_with("_increase"), -total_test_results)) %>%
+    select_at(
+      vars(-ends_with("_increase"), -total_test_results, -fips, -hash)) %>%
     gather(stat, total, -date, -state) %>%
     mutate(total = as.numeric(total)) %>%
     left_join(
@@ -176,7 +176,7 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
     filter(days_since <= max_days_since) %>%
     # filter not enough points
     group_by(location, stat, value_type) %>%
-    filter(n() >= min_days_since) %>%
+    filter( n() >= min_days_since) %>%
     ungroup() %>%
     # order plots and readable labels
     mutate(
@@ -200,7 +200,7 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
     # no smoothing
     {if (!smooth_plots) geom_line(alpha = 0.8)} +
     # smoothing
-    {if (smooth_plots) geom_line(stat = "smooth", method = "loess", 
+    {if (smooth_plots) geom_line(stat = "smooth", method = "loess", span = 1.5,
                                  alpha = 0.8)} +
     {if (smooth_plots) geom_point(alpha = 0.2)} +
     # .multi_line false doesn't work with ggplotly
@@ -222,7 +222,7 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
 
 genPlotComps <- function(
   df, min_stat = "deaths", geo_level = "country", min_thresh = 1,
-  max_days_since = 30, min_days_since = 5, smooth_plots = TRUE,
+  max_days_since = 30, min_days_since = 3, smooth_plots = TRUE,
   scale_to_fit = TRUE, per_million = TRUE) {
   df %>% genCompData(geo_level = geo_level, min_thresh = min_thresh,
                      per_million = per_million, min_stat = min_stat) %>%
@@ -240,10 +240,13 @@ genPlotComps <- function(
 
 cleanPlotly <- function(p) {
   gp <- suppressWarnings(ggplotly(p))
+  gp$x$layout$hovermode <- "compare"
+  gp$x$layout$yaxis$autorange <- TRUE
   gp$x$data <- lapply(gp$x$data, FUN = function(x) {
+    x$visible <- ifelse(x$name %in% exclude_countries, "legendonly", TRUE)
     if (x$mode == "lines") {
       x$hoverinfo <- "none"
-      x$text <- NA;
+      x$text <- NA
     }
     return(x)
   })
