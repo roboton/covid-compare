@@ -117,7 +117,7 @@ server <- function(input, output, session) {
     content = function(file) {
       write_csv(jhu %>% genCompData(
         geo_level = "country", min_thresh = input$min_thresh,
-        per_million= input$per_million, min_stat = input$min_stat), file)
+        per_million = input$per_million, min_stat = input$min_stat), file)
     }
   )
   output$downloadUSData <- downloadHandler(
@@ -125,9 +125,10 @@ server <- function(input, output, session) {
       paste0("covid-us-comp-data-", Sys.Date(), ".csv")
     },
     content = function(file) {
-      write_csv(covtrack %>% genCompData(
-        geo_level = "state", min_thresh = input$min_thresh,
-        per_million = input$per_million, min_stat = input$min_stat), file)
+      write_csv(covtrack %>% genCompData(geo_level = "state",
+                                         min_thresh = input$min_thresh,
+                                         per_million = input$per_million,
+                                         min_stat = input$min_stat), file)
     }
   )
 }
