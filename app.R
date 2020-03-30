@@ -13,9 +13,9 @@ min_global <- 1
 # pull in data
 jhu <- fetchPrepJhuData()
 covtrack <- fetchPrepCovTrackData()
-cds <- fetchPrepCovDataScrape() %>% rename(total = value) %>%
-  filter(country == "USA" & str_detect(location, "County") & max_deaths >= 10)
-
+# cds <- fetchPrepCovDataScrape() %>% rename(total = value) %>%
+#   filter(country == "USA" & str_detect(location, "County") & max_deaths >= 5)
+nyt <- fetchPrepNyt()
 
 last_update <- paste(now(), Sys.timezone())
  
@@ -66,6 +66,7 @@ ui <- fluidPage(
       p("(1) By default, the time series for each country/state begins on the day where each location had at least one death per million people in that location.  This is meant to calibrate each country/state so they can be compared at the same initial severity.  We choose deaths (vs cases) as our measure of severity because they are less sensitive to testing capacity as we assume that patients in more critical conditions are tested more uniformly than the population at large."),
       p("(2) Days to double, the metric in the second column seeks to give us an intuitive measure of how quickly the measures in the first column are growing over time.  It is computed as the number of days it took to double the counts in the first column.  Pandemics are scary because of exponential growth, and days to double is relatively intuitive way of understanding that."),
       p("Data from ", a(href = "https://coronavirus.jhu.edu/map.html", "JHU CSSE"),
+        ", ",  a(href = "https://github.com/nytimes/covid-19-data", "NY Times"), 
         " and ", a(href = "https://covidtracking.com/", "Covid Tracking Project"),
         ". Great ideas from ", a(href = "https://twitter.com/loeserjohn", "John.")),
       width = 2),
@@ -93,7 +94,7 @@ ui <- fluidPage(
         tabPanel(
           "FAQ",
           h4("Why does my country/state/county not show up here?"),
-          p("By default only countries and states that have one Covid-19 death per million people are shown. Setting initial deaths to zero will show all countries. Countries with less than 1M in population will also not be included. Counties with less than 10 deaths are also not shown."),
+          p("By default only countries and states that have one Covid-19 death per million people are shown. Setting initial deaths to zero will show all countries. Countries with less than 1M in population will also not be included. Counties with less than 5 deaths are also not shown."),
           h4("How frequently does this update?"),
           p("Daily. Last updated date is shown below the title."),
           h4("Where does the data come from?"),
@@ -101,9 +102,8 @@ ui <- fluidPage(
             " for country data, the ",
             a(href = "https://covidtracking.com/", "Covid Tracking Project"),
             " for US state data, and the ",
-            a(href = "https://coronadatascraper.com/", "Corona Data Scraper"),
-            " for US county data."
-            ),
+            a(href = "https://github.com/nytimes/covid-19-data",
+              "New York Times"), " for US county data."),
           h4("When I unclick a location, the plot moves. Why does that happen?"),
           p("The y-axis scales to the minimum and maximum values displayed on the plot."),
           h4("What does it mean for days to double to increase over time?"),
@@ -149,8 +149,10 @@ server <- function(input, output, session) {
                    smooth_plots = input$smooth_plots,
                    scale_to_fit = input$scale_to_fit) })
   output$compPlotCounty <- renderPlotly({
-    cds %>% 
-      genPlotComps(geo_level = "location",
+    # cds %>% 
+    #   genPlotComps(geo_level = "location",
+    nyt %>% 
+      genPlotComps(geo_level = "county",
                    min_thresh = input$min_thresh,
                    per_million = input$per_million,
                    min_stat = input$min_stat,
@@ -186,7 +188,8 @@ server <- function(input, output, session) {
       paste0("covid-county-comp-data-", Sys.Date(), ".csv")
     },
     content = function(file) {
-      write_csv(cds %>% genCompData(geo_level = "location",
+      #write_csv(cds %>% genCompData(geo_level = "location",
+      write_csv(nyt %>% genCompData(geo_level = "location",
                                     min_thresh = input$min_thresh,
                                     per_million = input$per_million,
                                     min_stat = input$min_stat), file)

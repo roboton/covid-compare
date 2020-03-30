@@ -8,11 +8,26 @@ library(jsonlite)
 census_api_key("8900c6e43b36c7974e390b41e93fc60a974afd8f")
 exclude_countries <- c("San Marino", "Guyana", "China", "Andorra", "Cabo Verde")
 default_locations <- c("US", "Spain", "Korea, South", "Italy", "China", "Iran",
-                       "CA", "LA", "NY", "NJ", "King County, WA, USA",
-                       "Los Angeles County, CA, USA", "Orleans County, LA, USA", 
-                       "Santa Clara County, CA, USA", "Wayne County, MI, USA")
+                       "CA", "LA", "NY", "NJ",
+                       "King County, Washington",
+                       "Los Angeles, California",
+                       "Orleans, Louisiana", 
+                       "Santa Clara, California",
+                       "Wayne, Michigan",
+                       "New York City, New York")
 
-join_wb_country <- function(df, join_data, by=c("Country/Region"="country")) {
+valueOrNA <- function(x) {
+  ifelse(!is.null(x), x, NA)
+}
+
+getTsMax <- function(cds_loc, metric) {
+  suppressWarnings(max(as.numeric(sapply(
+    Filter(function(y) {!is.null(y[[metric]])}, cds_loc$dates), "[[",
+    metric))))
+}
+
+join_wb_country <- function(df, join_data,
+                            by=c("Country/Region" = "country")) {
   df %>% left_join(
     join_data %>%
       mutate(country = case_when(
@@ -141,20 +156,9 @@ fetchPrepCovTrackData <- function() {
 }
 
 fetchPrepCovDataScrape <- function() {
-
   cds_data <- jsonlite::fromJSON(
     "https://coronadatascraper.com/timeseries-byLocation.json")
-  
-  valueOrNA <- function(x) {
-    ifelse(!is.null(x), x, NA)
-  }
-  
-  getTsMax <- function(cds_loc, metric) {
-    suppressWarnings(max(as.numeric(sapply(
-      Filter(function(y) {!is.null(y[[metric]])}, cds_loc$dates), "[[",
-      metric))))
-  }
-  
+ 
   names(cds_data) %>%
     lapply(FUN = function(x) {
       list(
@@ -210,6 +214,32 @@ fetchPrepCovDataScrape <- function() {
     select(-ts_values) %>%
     gather(stat, value, deaths, confirmed, cfr) %>%
     mutate(popM = value / population * 1e6)
+}
+
+fetchPrepNyt <- function(min_deaths = 5) {
+  read_csv(url(
+    "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv")) %>%
+    mutate(cfr = deaths / cases) %>%
+    # mutate(state = unlist(sapply(state, FUN = function(x) {
+    #   unlist(valueOrNA(state.abb[which(state.name == x)])) }))) %>%
+    gather(stat, total, cases, deaths, cfr) %>%
+    unite(county, county, state, sep = ", ") %>%
+    #mutate(county = paste0(county, ", USA")) %>%
+    left_join(
+      get_estimates("county", variables = "POP") %>%
+        rename(population = value) %>%
+        mutate(fips = str_sub(GEOID, 1, 5)) %>%
+        select(fips, population),
+              by = "fips") %>%
+    mutate(population = case_when(
+      county == "New York City, New York" ~ 8623000,
+      county == "Kansas City, Missouri" ~ 488943,
+      TRUE ~ population)) %>%  
+    mutate(popM = total / population * 1e6) %>%
+    group_by(county) %>%
+    mutate(max_deaths = max(total[stat == "deaths"], na.rm = TRUE)) %>%
+    ungroup() %>%
+    filter(max_deaths >= min_deaths)
 }
 
 # plot comps function

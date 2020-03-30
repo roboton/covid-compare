@@ -315,6 +315,23 @@ names(cds_data) %>%
   select(-ts_values) %>%
   gather(stat, value, deaths, active, cases, recovered, tested,
          growthFactor, cfr, ptr, rr) %>%
-  mutate(popM = value / population * 1e6)
+  mutate(popM = value / population * 1e6) -> cds
+```
+
+```{r}
+read_csv(url("https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv")) %>%
+  mutate(cfr = deaths / cases, county = paste(county, "County")) %>%
+  mutate(state = unlist(sapply(state, FUN = function(x) { unlist(valueOrNA(state.abb[which(state.name == x)])) }))) %>%
+  gather(stat, total, cases, deaths, cfr) %>%
+  select(-fips) %>%
+  unite(county, county, state, sep = ", ") %>%
+  mutate(county = paste0(county, ", USA")) %>%
+  left_join(cds %>% filter(country == "USA" & aggregate == "county") %>% select(name, population) %>% unique(), by = c("county" = "name")) %>%
+  mutate(popM = total / population * 1e6) %>%
+  group_by(county) %>%
+  mutate(max_deaths = max(total[stat == "deaths"], na.rm = TRUE)) %>%
+  ungroup() %>%
+  filter(max_deaths >= 5) %>%
+  genPlotComps(geo_level = "county")
 ```
 
