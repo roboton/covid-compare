@@ -230,10 +230,6 @@ names(cds_data)
 ```
 
 ```{r}
-
-```
-
-```{r}
 library(tidyverse)
 ita <- cds_data[["ITA"]]
 names(ita)
@@ -248,6 +244,13 @@ sapply(cds_data, names) %>% unlist %>% table %>% sort
 ```
 
 ```{r}
+library(tidyverse)
+library(jsonlite)
+library(lubridate)
+
+cds_data <- jsonlite::fromJSON(
+  "https://coronadatascraper.com/timeseries-byLocation.json")
+
 valueOrNA <- function(x) {
   ifelse(!is.null(x), x, NA)
 }
@@ -267,21 +270,16 @@ names(cds_data) %>%
       population = valueOrNA(cds_data[[x]]$population),
       county = valueOrNA(cds_data[[x]]$county),
       city = valueOrNA(cds_data[[x]]$city),
-      # aggregate =
-      #   ifelse(!is.null(cds_data[[x]]$aggregate), cds_data[[x]]$aggregate, NA),
-      # state =
-      #   ifelse(!is.null(cds_data[[x]]$state), cds_data[[x]]$state, NA),
-      # county =
-      #   ifelse(!is.null(cds_data[[x]]$county), cds_data[[x]]$county, NA),
-      # city =
-      #   ifelse(!is.null(cds_data[[x]]$city), cds_data[[x]]$ccity, NA),
-      # population =
-      #   ifelse(!is.null(cds_data[[x]]$population), cds_data[[x]]$population, NA),
       max_deaths = getTsMax(cds_data[[x]], "deaths"),
       max_cases = getTsMax(cds_data[[x]], "cases"),
       max_tested = getTsMax(cds_data[[x]], "tested"),
       max_active = getTsMax(cds_data[[x]], "active"),
-      max_recovered = getTsMax(cds_data[[x]], "recovered"))
+      max_recovered = getTsMax(cds_data[[x]], "recovered"),
+      # deaths_ts = lapply(names(cds_data[[x]]$dates), FUN = function(x) {
+      #   c(x = valueOrNA(cds_data[[x]]$dates[[x]]$deaths))
+      # }),
+      date = list(names(cds_data[[x]]$dates)),
+      ts_values = list(cds_data[[x]]$dates))
     }) %>%
   bind_rows() %>% 
   mutate(
@@ -291,14 +289,32 @@ names(cds_data) %>%
     max_active = na_if(max_active, -Inf),
     max_recovered = na_if(max_recovered, -Inf)) %>%
   mutate(
-    deaths_per_capita = max_deaths / population * 1e6,
-    tested_per_capita = max_tested / population * 1e6,
-    recovered_per_capita = max_recovered / population * 1e6,
-    positive_test_rate = max_cases / max_tested) %>%
-  arrange(-deaths_per_capita) %>%
-  filter(between(population, 1e5, Inf)) %>%
-  select_at(vars(-starts_with("max_"))) %>%
-  DT::datatable()
-  
+    max_deaths_per_capita = max_deaths / population * 1e6,
+    max_tested_per_capita = max_tested / population * 1e6,
+    max_recovered_per_capita = max_recovered / population * 1e6,
+    max_positive_test_rate = max_cases / max_tested) %>%
+  unnest(c(date, ts_values)) %>%
+  mutate(
+    date = ymd(date),
+    deaths = unlist(sapply(ts_values, FUN = function(x) {
+      return(valueOrNA(x$deaths)) })),
+    active = unlist(sapply(ts_values, FUN = function(x) {
+      return(valueOrNA(x$active)) })),
+    cases = unlist(sapply(ts_values, FUN = function(x) {
+      return(valueOrNA(x$cases)) })),
+    recovered = unlist(sapply(ts_values, FUN = function(x) {
+      return(valueOrNA(x$recovered)) })),
+    tested = unlist(sapply(ts_values, FUN = function(x) {
+      return(valueOrNA(x$tested)) })),
+    growthFactor = unlist(sapply(ts_values, FUN = function(x) {
+      return(valueOrNA(x$growthFactor)) })),
+    cfr = deaths / cases,
+    ptr = cases / tested,
+    rr = recovered / cases
+    ) %>%
+  select(-ts_values) %>%
+  gather(stat, value, deaths, active, cases, recovered, tested,
+         growthFactor, cfr, ptr, rr) %>%
+  mutate(popM = value / population * 1e6)
 ```
 

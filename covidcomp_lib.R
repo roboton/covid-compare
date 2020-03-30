@@ -3,10 +3,14 @@ library(lubridate)
 library(covid19us)
 library(wbstats)
 library(tidycensus)
+library(jsonlite)
+
 census_api_key("8900c6e43b36c7974e390b41e93fc60a974afd8f")
 exclude_countries <- c("San Marino", "Guyana", "China", "Andorra", "Cabo Verde")
-default_countries <- c("US", "Spain", "Korea, South", "Italy", "China", "Iran",
-                       "CA", "LA", "NY", "NJ")
+default_locations <- c("US", "Spain", "Korea, South", "Italy", "China", "Iran",
+                       "CA", "LA", "NY", "NJ", "King County, WA, USA",
+                       "Los Angeles County, CA, USA", "Orleans County, LA, USA", 
+                       "Santa Clara County, CA, USA", "Wayne County, MI, USA")
 
 join_wb_country <- function(df, join_data, by=c("Country/Region"="country")) {
   df %>% left_join(
@@ -45,7 +49,7 @@ join_wb_country <- function(df, join_data, by=c("Country/Region"="country")) {
     by = by)
 }
 
-add_country_pop <- function(df) {
+add_country_pop <- function(df, min_popM = 1) {
   df %>% join_wb_country(
     wb(indicator = "SP.POP.TOTL", startdate = 2018, enddate = 2018) %>%
       rename(popM = value) %>%
@@ -55,6 +59,7 @@ add_country_pop <- function(df) {
         TRUE ~ popM)) %>%
       select(country, popM) %>%
       mutate(popM = popM / 1e6)) %>%
+    filter(popM >= min_popM) %>%
     mutate(popM = value / popM)
 }
 
@@ -135,6 +140,78 @@ fetchPrepCovTrackData <- function() {
     ))
 }
 
+fetchPrepCovDataScrape <- function() {
+
+  cds_data <- jsonlite::fromJSON(
+    "https://coronadatascraper.com/timeseries-byLocation.json")
+  
+  valueOrNA <- function(x) {
+    ifelse(!is.null(x), x, NA)
+  }
+  
+  getTsMax <- function(cds_loc, metric) {
+    suppressWarnings(max(as.numeric(sapply(
+      Filter(function(y) {!is.null(y[[metric]])}, cds_loc$dates), "[[",
+      metric))))
+  }
+  
+  names(cds_data) %>%
+    lapply(FUN = function(x) {
+      list(
+        location = x,
+        country = valueOrNA(cds_data[[x]]$country),
+        aggregate = valueOrNA(cds_data[[x]]$aggregate),
+        state = valueOrNA(cds_data[[x]]$state),
+        population = valueOrNA(cds_data[[x]]$population),
+        county = valueOrNA(cds_data[[x]]$county),
+        city = valueOrNA(cds_data[[x]]$city),
+        max_deaths = getTsMax(cds_data[[x]], "deaths"),
+        max_cases = getTsMax(cds_data[[x]], "cases"),
+        max_tested = getTsMax(cds_data[[x]], "tested"),
+        max_active = getTsMax(cds_data[[x]], "active"),
+        max_recovered = getTsMax(cds_data[[x]], "recovered"),
+        # deaths_ts = lapply(names(cds_data[[x]]$dates), FUN = function(x) {
+        #   c(x = valueOrNA(cds_data[[x]]$dates[[x]]$deaths))
+        # }),
+        date = list(names(cds_data[[x]]$dates)),
+        ts_values = list(cds_data[[x]]$dates))
+      }) %>%
+    bind_rows() %>% 
+    mutate(
+      max_deaths = na_if(max_deaths, -Inf),
+      max_cases = na_if(max_cases, -Inf),
+      max_tested = na_if(max_tested, -Inf),
+      max_active = na_if(max_active, -Inf),
+      max_recovered = na_if(max_recovered, -Inf)) %>%
+    mutate(
+      max_deaths_per_capita = max_deaths / population * 1e6,
+      max_tested_per_capita = max_tested / population * 1e6,
+      max_recovered_per_capita = max_recovered / population * 1e6,
+      max_positive_test_rate = max_cases / max_tested) %>%
+    unnest(c(date, ts_values)) %>%
+    mutate(
+      date = ymd(date),
+      deaths = unlist(sapply(ts_values, FUN = function(x) {
+        return(valueOrNA(x$deaths)) })),
+      # active = unlist(sapply(ts_values, FUN = function(x) {
+      #   return(valueOrNA(x$active)) })),
+      confirmed = unlist(sapply(ts_values, FUN = function(x) {
+        return(valueOrNA(x$cases)) })),
+      # recovered = unlist(sapply(ts_values, FUN = function(x) {
+      #   return(valueOrNA(x$recovered)) })),
+      # total = unlist(sapply(ts_values, FUN = function(x) {
+      #   return(valueOrNA(x$tested)) })),
+      # growthFactor = unlist(sapply(ts_values, FUN = function(x) {
+      #   return(valueOrNA(x$growthFactor)) })),
+      cfr = deaths / confirmed #,
+      #ptr = confirmed / total
+      #crr = recovered / confirmed
+      ) %>%
+    select(-ts_values) %>%
+    gather(stat, value, deaths, confirmed, cfr) %>%
+    mutate(popM = value / population * 1e6)
+}
+
 # plot comps function
 genCompData <- function(df, geo_level = NA, min_stat = "deaths",
                         min_thresh = NA, per_million = TRUE) {
@@ -147,6 +224,7 @@ genCompData <- function(df, geo_level = NA, min_stat = "deaths",
     rename(location = all_of(geo_level)) %>%
     # get max_total and first_date per location/stat
     group_by(location, stat) %>%
+    
     mutate(max_total = max(!!sym(stat_col), na.rm = TRUE),
            first_date = suppressWarnings(
              min(date[!!sym(stat_col) >= min_thresh], na.rm = TRUE))) %>%
@@ -188,12 +266,17 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
                           labels = c("Total count",
                                      "Total count per million people",
                                      "Days to double total count")),
-      stat = factor(stat, levels = c("deaths", "confirmed", #"recovered",
+      stat = factor(stat, levels = c("deaths", "confirmed",
+                                     "active", "recovered",
                                      "positive", "total",
-                                     "negative", "pending", "hospitalized",
-                                     "cfr", "crr", "ptr", "hr", "dhr"),
-                    labels = c("Deaths", "Confirmed cases", #"Recovered cases",
-                               "Positive tests", "Total tests",
+                                     "negative", "pending",
+                                     "hospitalized",
+                                     "cfr", "crr",
+                                     "ptr", "hr",
+                                     "dhr"),
+                    labels = c("Deaths", "Confirmed cases",
+                               "Active cases", "Recovered cases",
+                               "Positive tests", "Tests",
                                "Negative tests", "Pending tests",
                                "Hospitalized", 
                                "Case fatality rate", "Case recovery rate",
@@ -204,7 +287,7 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
     # no smoothing
     {if (!smooth_plots) geom_line(alpha = 0.8)} +
     # smoothing
-    {if (smooth_plots) geom_line(stat = "smooth", method = "loess", span = 1.5,
+    {if (smooth_plots) geom_line(stat = "smooth", method = "loess", span = 1,
                                  alpha = 0.8)} +
     {if (smooth_plots) geom_point(alpha = 0.2)} +
     # .multi_line false doesn't work with ggplotly
@@ -224,6 +307,28 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
           plot.title = element_text(hjust = 0.5)) + ylim(0, NA)
 }
 
+cleanPlotly <- function(p, smooth_plots = TRUE) {
+  gp <- suppressWarnings(ggplotly(p))
+  # compare on mouse over
+  gp$x$layout$hovermode <- "compare"
+  # auto scale y-axes (modify in-place)
+  sapply(names(gp$x$layout), FUN = function(x) {
+    if (startsWith(x, "yaxis")) { gp$x$layout[[x]]$autorange <<- TRUE }
+  }) 
+  # edit data properties (edit and copy)
+  gp$x$data <- lapply(gp$x$data, FUN = function(x) {
+    # show default countries by default
+    x$visible <- ifelse(x$name %in% default_locations, TRUE, "legendonly")
+    # only remove line hover over text if we're smoothing plots
+    if (x$mode == "lines" && smooth_plots) {
+      x$hoverinfo <- "none"
+      x$text <- NA
+    }
+    return(x)
+  })
+  return(gp)
+}
+
 genPlotComps <- function(
   df, min_stat = "deaths", geo_level = "country", min_thresh = 1,
   max_days_since = 30, min_days_since = 3, smooth_plots = TRUE,
@@ -239,22 +344,5 @@ genPlotComps <- function(
       smooth_plots = smooth_plots, min_stat = min_stat,
       scale_to_fit = scale_to_fit, per_million = per_million,
                      min_days_since = min_days_since) %>%
-    cleanPlotly()
-}
-
-cleanPlotly <- function(p) {
-  gp <- suppressWarnings(ggplotly(p))
-  #gp$x$layout$hovermode <- "compare"
-  sapply(names(gp$x$layout), FUN = function(x) {
-    if (startsWith(x, "yaxis")) { gp$x$layout[[x]]$autorange <<- TRUE }
-  }) 
-  gp$x$data <- lapply(gp$x$data, FUN = function(x) {
-    x$visible <- ifelse(x$name %in% default_countries, TRUE, "legendonly")
-    if (x$mode == "lines") {
-      x$hoverinfo <- "none"
-      x$text <- NA
-    }
-    return(x)
-  })
-  return(gp)
+    cleanPlotly(smooth_plots = smooth_plots)
 }

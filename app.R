@@ -4,6 +4,7 @@ library(shinyjs)
 library(shinybusy)
 library(plotly)
 library(DT)
+library(dtplyr)
 
 source("covidcomp_lib.R")
 min_us <- 1
@@ -12,6 +13,9 @@ min_global <- 1
 # pull in data
 jhu <- fetchPrepJhuData()
 covtrack <- fetchPrepCovTrackData()
+cds <- fetchPrepCovDataScrape() %>% rename(total = value) %>%
+  filter(country == "USA" & str_detect(location, "County") & max_deaths >= 10)
+
 
 last_update <- paste(now(), Sys.timezone())
  
@@ -20,8 +24,7 @@ options(scipen = 999, digits = 1)
 
 ui <- fluidPage(
   useShinyjs(), # for moving showcase code to the bottom
-  add_busy_bar(color = "CornflowerBlue", timeout = 800, centered = TRUE,
-               height = "10px"),
+  add_busy_bar(color = "CornflowerBlue", timeout = 800),
   theme = shinytheme("lumen"),
   titlePanel("Covid-19 comparisons"),
   tags$div(paste("Last updated:", last_update)),
@@ -37,9 +40,9 @@ ui <- fluidPage(
   tags$a(
     href = "mailto:roberton@gmail.com",
     target = "_blank", "[contact]"),
-  tags$a(
-    href = "https://robon.shinyapps.io/covidcomp/covidcomp_static.html",
-    target = "_blank", "[too slow?]"),
+  # tags$a(
+  #   href = "https://robon.shinyapps.io/covidcomp/covidcomp_static.html",
+  #   target = "_blank", "[too slow?]"),
   sidebarLayout(
     sidebarPanel(
       # data options
@@ -72,32 +75,41 @@ ui <- fluidPage(
         tabPanel(
           "Global", value = "Global",
           plotlyOutput(
-            "compPlot", width = "100%", height = "1600px"),
+            "compPlot", width = "100%", height = "1200px"),
             downloadButton("downloadGlobalData", "download")
         ),
         tabPanel(
-          "US", value = "US",
+          "US States", value = "US",
           plotlyOutput(
             "compPlotUS", width = "100%", height = "1600px"),
             downloadButton("downloadUSData", "download")
         ),
         tabPanel(
+          "US Counties", value = "County",
+          plotlyOutput(
+            "compPlotCounty", width = "100%", height = "1600px"),
+            downloadButton("downloadCountyData", "download")
+        ),
+        tabPanel(
           "FAQ",
-          h4("Why does my country not show up here?"),
-          p("By default only countries that have one Covid-19 death per million people are shown.  Setting initial deaths to zero will show all countries."),
+          h4("Why does my country/state/county not show up here?"),
+          p("By default only countries and states that have one Covid-19 death per million people are shown. Setting initial deaths to zero will show all countries. Countries with less than 1M in population will also not be included. Counties with less than 10 deaths are also not shown."),
           h4("How frequently does this update?"),
-          p("Daily."),
+          p("Daily. Last updated date is shown below the title."),
           h4("Where does the data come from?"),
           p(a(href = "https://coronavirus.jhu.edu/map.html", "John Hopkins CSSE"),
-            " for country data and the ",
-            a(href = "https://covidtracking.com/", "Covid Tracking Project."),
-            " for US state data."),
-          h4("When I unclick a country or a state, the plot moves. Why does that happen?"),
+            " for country data, the ",
+            a(href = "https://covidtracking.com/", "Covid Tracking Project"),
+            " for US state data, and the ",
+            a(href = "https://coronadatascraper.com/", "Corona Data Scraper"),
+            " for US county data."
+            ),
+          h4("When I unclick a location, the plot moves. Why does that happen?"),
           p("The y-axis scales to the minimum and maximum values displayed on the plot."),
           h4("What does it mean for days to double to increase over time?"),
           p("It's taking longer and longer for your counts to double - this is good for things we don't want like deaths and cases."),
-          h4("Why did you choose these countries and states?"),
-          p("The default countries are chosen for no good reason besides that they are often talked about in the press.  Please explore by clicking and unclicking the countries on the right.  Double-clicking a selected country will display only that country/state's plot."),
+          h4("Why did you choose these locations to show by default?"),
+          p("The default locations are chosen for no good reason besides that they are often talked about in the press. Please explore by clicking and unclicking the locations on the right.  Double-clicking a selected location will display only that location's plot."),
           h4("What does the Download button do?"),
           p("Downloads the data (in csv format) used for the set of plots displayed.")
         )
@@ -136,6 +148,15 @@ server <- function(input, output, session) {
                    max_days_since = input$max_days_since,
                    smooth_plots = input$smooth_plots,
                    scale_to_fit = input$scale_to_fit) })
+  output$compPlotCounty <- renderPlotly({
+    cds %>% 
+      genPlotComps(geo_level = "location",
+                   min_thresh = input$min_thresh,
+                   per_million = input$per_million,
+                   min_stat = input$min_stat,
+                   max_days_since = input$max_days_since,
+                   smooth_plots = input$smooth_plots,
+                   scale_to_fit = input$scale_to_fit) }) 
   # output$compData <- renderDataTable({
   #   joined %>% genCompData(min_thresh = input$min_thresh)
   # })
@@ -158,6 +179,17 @@ server <- function(input, output, session) {
                                          min_thresh = input$min_thresh,
                                          per_million = input$per_million,
                                          min_stat = input$min_stat), file)
+    }
+  )
+  output$downloadCountyData <- downloadHandler(
+    filename = function() {
+      paste0("covid-county-comp-data-", Sys.Date(), ".csv")
+    },
+    content = function(file) {
+      write_csv(cds %>% genCompData(geo_level = "location",
+                                    min_thresh = input$min_thresh,
+                                    per_million = input$per_million,
+                                    min_stat = input$min_stat), file)
     }
   )
 }
