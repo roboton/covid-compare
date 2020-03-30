@@ -239,7 +239,8 @@ fetchPrepNyt <- function(min_deaths = 5) {
     group_by(county) %>%
     mutate(max_deaths = max(total[stat == "deaths"], na.rm = TRUE)) %>%
     ungroup() %>%
-    filter(max_deaths >= min_deaths)
+    filter(max_deaths >= min_deaths) %>%
+    rename(confirmed = cases)
 }
 
 # plot comps function
