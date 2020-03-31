@@ -1,10 +1,6 @@
-library(shiny)
-library(shinythemes)
-library(shinyjs)
-library(shinybusy)
-library(plotly)
-library(DT)
-library(dtplyr)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, lubridate, shiny, shinythemes, shinyjs, shinybusy,
+               plotly, DT, dtplyr)
 
 source("covidcomp_lib.R")
 min_us <- 1

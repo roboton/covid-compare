@@ -1,9 +1,5 @@
-library(tidyverse)
-library(lubridate)
-library(covid19us)
-library(wbstats)
-library(tidycensus)
-library(jsonlite)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(covid19us, wbstats, tidycensus, jsonlite)
 
 census_api_key("8900c6e43b36c7974e390b41e93fc60a974afd8f")
 exclude_countries <- c("San Marino", "Guyana", "China", "Andorra", "Cabo Verde")
@@ -315,11 +311,12 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
                                "Death/Hosp. rate"))) %>%
     # plot begins
     ggplot(aes(days_since, value, color = location, label = date)) +
+    scale_x_continuous() + 
     # no smoothing
     {if (!smooth_plots) geom_line(alpha = 0.8)} +
     # smoothing
     {if (smooth_plots) geom_line(stat = "smooth", method = "loess", span = 1,
-                                 alpha = 0.8)} +
+                                 alpha = 0.8, formula = y ~ x)} +
     {if (smooth_plots) geom_point(alpha = 0.2)} +
     # .multi_line false doesn't work with ggplotly
     facet_wrap(vars(stat, value_type), ncol = 2,
