@@ -216,13 +216,14 @@ fetchPrepCovDataScrape <- function() {
     mutate(popM = value / population * 1e6)
 }
 
-fetchPrepNyt <- function(min_deaths = 5) {
+fetchPrepNyt <- function(min_deaths = 8) {
   read_csv(url(
     "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv")) %>%
-    mutate(cfr = deaths / cases) %>%
+    rename(confirmed = cases) %>%
+    mutate(cfr = deaths / confirmed) %>%
     # mutate(state = unlist(sapply(state, FUN = function(x) {
     #   unlist(valueOrNA(state.abb[which(state.name == x)])) }))) %>%
-    gather(stat, total, cases, deaths, cfr) %>%
+    gather(stat, total, confirmed, deaths, cfr) %>%
     unite(county, county, state, sep = ", ") %>%
     #mutate(county = paste0(county, ", USA")) %>%
     left_join(
@@ -239,8 +240,7 @@ fetchPrepNyt <- function(min_deaths = 5) {
     group_by(county) %>%
     mutate(max_deaths = max(total[stat == "deaths"], na.rm = TRUE)) %>%
     ungroup() %>%
-    filter(max_deaths >= min_deaths) %>%
-    rename(confirmed = cases)
+    filter(max_deaths >= min_deaths)
 }
 
 # plot comps function

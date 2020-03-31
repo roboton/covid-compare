@@ -77,24 +77,28 @@ ui <- fluidPage(
           "Global", value = "Global",
           plotlyOutput(
             "compPlot", width = "100%", height = "1200px"),
-            downloadButton("downloadGlobalData", "download")
+            downloadButton("downloadGlobalData", "download data (csv)")
         ),
         tabPanel(
           "US States", value = "US",
           plotlyOutput(
             "compPlotUS", width = "100%", height = "1600px"),
-            downloadButton("downloadUSData", "download")
+            downloadButton("downloadUSData", "download data (csv)")
         ),
         tabPanel(
           "US Counties", value = "County",
           plotlyOutput(
-            "compPlotCounty", width = "100%", height = "1600px"),
-            downloadButton("downloadCountyData", "download")
+            "compPlotCounty", width = "100%", height = "1200px"),
+            downloadButton("downloadCountyData", "download data (csv)")
         ),
         tabPanel(
           "FAQ",
-          h4("Why does my country/state/county not show up here?"),
-          p("By default only countries and states that have one Covid-19 death per million people are shown. Setting initial deaths to zero will show all countries. Countries with less than 1M in population will also not be included. Counties with less than 5 deaths are also not shown."),
+          h4("Why does my country not show up here?"),
+          p("By default only countries that have one death per million people are shown and have a population of at least 1M people. Setting initial deaths to zero, for example, will show all countries."),
+          h4("Why does my US state not show up here?"),
+          p("By default only states that have one death per million people are shown. Setting initial deaths to zero, for example, will show all states."),
+          h4("Why does my US county not show up here?"),
+          p("By default only counties that have one death per million people are shown.  Counties with less than eight deaths are also not shown. Setting initial deaths, for example, to zero will show all counties with five or more deaths."),
           h4("How frequently does this update?"),
           p("Daily. Last updated date is shown below the title."),
           h4("Where does the data come from?"),
@@ -188,8 +192,7 @@ server <- function(input, output, session) {
       paste0("covid-county-comp-data-", Sys.Date(), ".csv")
     },
     content = function(file) {
-      #write_csv(cds %>% genCompData(geo_level = "location",
-      write_csv(nyt %>% genCompData(geo_level = "location",
+      write_csv(nyt %>% genCompData(geo_level = "county",
                                     min_thresh = input$min_thresh,
                                     per_million = input$per_million,
                                     min_stat = input$min_stat), file)
