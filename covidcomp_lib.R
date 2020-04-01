@@ -263,6 +263,20 @@ genCompData <- function(df, geo_level = NA, min_stat = "deaths",
     gather(value_type, value, !!sym(stat_col), double_days)
 }
 
+comp_labeller <- function(labels) {
+  print(labels)
+  print(class(labels))
+  print(class(labels$stat))
+  print(class(labels$value_type))
+  if (nrow(labels) > 0 & ncol(labels) > 0) {
+    labels <- labels %>% mutate_if(is.factor, as.character) %>%
+      mutate(value_type = if_else(
+        str_ends(stat, " rate"), "", value_type))
+    print(labels)
+  }
+  return(labels)
+}
+
 plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
                       max_days_since = 20, min_days_since = 3,
                       smooth_plots = TRUE, scale_to_fit = TRUE,
@@ -311,7 +325,8 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
     # .multi_line false doesn't work with ggplotly
     facet_wrap(vars(stat, value_type), ncol = 2,
                scales = {if (scale_to_fit) "free_y" else "fixed"},
-               labeller = labeller(.multi_line = TRUE)) +
+               #labeller = labeller(.multi_line = TRUE)) +
+               labeller = comp_labeller) +
     # labelling
     ggtitle(paste0("Metrics since ", min_stat,
                    {if (per_million) " per million people " else ""}, " >= ",
