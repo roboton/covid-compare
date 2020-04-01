@@ -1,6 +1,5 @@
 if (!require("pacman")) install.packages("pacman")
-pacman::p_load(tidyverse, lubridate, shiny, shinythemes, shinyjs, shinybusy,
-               plotly, DT, dtplyr)
+pacman::p_load(shiny, shinythemes, shinyjs, shinybusy)
 
 source("covidcomp_lib.R", local = TRUE)
 
@@ -8,10 +7,6 @@ source("covidcomp_lib.R", local = TRUE)
 min_us <- 1
 min_global <- 1
 refresh_interval <- hours(6)
-
-if (Sys.getenv("CENSUS_API_KEY") == "") {
-  census_api_key("8900c6e43b36c7974e390b41e93fc60a974afd8f", install = TRUE)
-}
 
 exclude_countries <- c("San Marino", "Guyana", "China", "Andorra", "Cabo Verde")
 default_locations <- c("US", "Spain", "Korea, South", "Italy", "China", "Iran",

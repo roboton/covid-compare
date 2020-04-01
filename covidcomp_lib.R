@@ -1,5 +1,10 @@
 if (!require("pacman")) install.packages("pacman")
-pacman::p_load(covid19us, wbstats, tidycensus, jsonlite)
+pacman::p_load(tidyverse, lubridate, covid19us, wbstats, tidycensus, jsonlite,
+               dtplyr, plotly)
+
+if (Sys.getenv("CENSUS_API_KEY") == "") {
+  census_api_key("8900c6e43b36c7974e390b41e93fc60a974afd8f", install = TRUE)
+}
 
 valueOrNA <- function(x) {
   ifelse(!is.null(x), x, NA)
@@ -264,15 +269,10 @@ genCompData <- function(df, geo_level = NA, min_stat = "deaths",
 }
 
 comp_labeller <- function(labels) {
-  print(labels)
-  print(class(labels))
-  print(class(labels$stat))
-  print(class(labels$value_type))
   if (nrow(labels) > 0 & ncol(labels) > 0) {
     labels <- labels %>% mutate_if(is.factor, as.character) %>%
       mutate(value_type = if_else(
         str_ends(stat, " rate"), "", value_type))
-    print(labels)
   }
   return(labels)
 }
@@ -280,7 +280,7 @@ comp_labeller <- function(labels) {
 plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
                       max_days_since = 20, min_days_since = 3,
                       smooth_plots = TRUE, scale_to_fit = TRUE,
-                      per_million = TRUE) {
+                      per_million = TRUE, span = 1) {
   df %>%
     # lazy filter for erroneous data
     filter(value >= 0) %>%
@@ -319,7 +319,7 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
     # no smoothing
     {if (!smooth_plots) geom_line(alpha = 0.8)} +
     # smoothing
-    {if (smooth_plots) geom_line(stat = "smooth", method = "loess", span = 1,
+    {if (smooth_plots) geom_line(stat = "smooth", method = "loess", span = span,
                                  alpha = 0.8, formula = y ~ x)} +
     {if (smooth_plots) geom_point(alpha = 0.2)} +
     # .multi_line false doesn't work with ggplotly
@@ -357,6 +357,7 @@ cleanPlotly <- function(p, smooth_plots = TRUE) {
       x$hoverinfo <- "none"
       x$text <- NA
     }
+    
     return(x)
   })
   return(gp)
