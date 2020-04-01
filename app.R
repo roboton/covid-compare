@@ -45,7 +45,7 @@ ui <- fluidPage(
   #   href = "https://robon.shinyapps.io/covidcomp/?showcase=1",
   #   target = "_blank", "[showcase]"),
   tags$a(
-    href = "https://github.com/roboton/covid-19_meta/tree/master/covidcomp",
+    href = "https://github.com/roboton/covid-compare",
     target = "_blank", "[git]"),
   tags$a(
     href = "mailto:roberton@gmail.com",
