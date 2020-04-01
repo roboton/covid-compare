@@ -1,17 +1,6 @@
 if (!require("pacman")) install.packages("pacman")
 pacman::p_load(covid19us, wbstats, tidycensus, jsonlite)
 
-census_api_key("8900c6e43b36c7974e390b41e93fc60a974afd8f")
-exclude_countries <- c("San Marino", "Guyana", "China", "Andorra", "Cabo Verde")
-default_locations <- c("US", "Spain", "Korea, South", "Italy", "China", "Iran",
-                       "CA", "LA", "NY", "NJ",
-                       "King County, Washington",
-                       "Los Angeles, California",
-                       "Orleans, Louisiana", 
-                       "Santa Clara, California",
-                       "Wayne, Michigan",
-                       "New York City, New York")
-
 valueOrNA <- function(x) {
   ifelse(!is.null(x), x, NA)
 }
@@ -243,6 +232,7 @@ fetchPrepNyt <- function(min_deaths = 8) {
 genCompData <- function(df, geo_level = NA, min_stat = "deaths",
                         min_thresh = NA, per_million = TRUE) {
   stat_col <- {if (per_million) "popM" else "total"}
+  
   if (is.na(min_thresh)) {
     min_thresh <- {if (per_million) 1 else 10}
   } 
@@ -360,7 +350,15 @@ cleanPlotly <- function(p, smooth_plots = TRUE) {
 genPlotComps <- function(
   df, min_stat = "deaths", geo_level = "country", min_thresh = 1,
   max_days_since = 30, min_days_since = 3, smooth_plots = TRUE,
-  scale_to_fit = TRUE, per_million = TRUE) {
+  scale_to_fit = TRUE, per_million = TRUE, refresh_interval = hours(6)) {
+  
+  # refresh data after refresh_interval 
+  data_age <- as.period(now() - last_update)
+  if (data_age > refresh_interval) {
+    warning(paste("Refreshing data after", data_age))
+    refreshData()
+  }
+  
   df %>% genCompData(geo_level = geo_level, min_thresh = min_thresh,
                      per_million = per_million, min_stat = min_stat) %>%
     # filter plots
@@ -373,4 +371,11 @@ genPlotComps <- function(
       scale_to_fit = scale_to_fit, per_million = per_million,
                      min_days_since = min_days_since) %>%
     cleanPlotly(smooth_plots = smooth_plots)
+}
+
+refreshData <- function() {
+  jhu <<- fetchPrepJhuData()
+  covtrack <<- fetchPrepCovTrackData()
+  nyt <<- fetchPrepNyt()
+  last_update <<- now()
 }

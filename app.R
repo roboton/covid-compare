@@ -2,19 +2,33 @@ if (!require("pacman")) install.packages("pacman")
 pacman::p_load(tidyverse, lubridate, shiny, shinythemes, shinyjs, shinybusy,
                plotly, DT, dtplyr)
 
-source("covidcomp_lib.R")
+source("covidcomp_lib.R", local = TRUE)
+
+# set up global params
 min_us <- 1
 min_global <- 1
+refresh_interval <- hours(6)
+
+if (Sys.getenv("CENSUS_API_KEY") == "") {
+  census_api_key("8900c6e43b36c7974e390b41e93fc60a974afd8f", install = TRUE)
+}
+
+exclude_countries <- c("San Marino", "Guyana", "China", "Andorra", "Cabo Verde")
+default_locations <- c("US", "Spain", "Korea, South", "Italy", "China", "Iran",
+                       "CA", "LA", "NY", "NJ",
+                       "King County, Washington",
+                       "Los Angeles, California",
+                       "Orleans, Louisiana", 
+                       "Santa Clara, California",
+                       "Wayne, Michigan",
+                       "New York City, New York")
 
 # pull in data
 jhu <- fetchPrepJhuData()
 covtrack <- fetchPrepCovTrackData()
-# cds <- fetchPrepCovDataScrape() %>% rename(total = value) %>%
-#   filter(country == "USA" & str_detect(location, "County") & max_deaths >= 5)
 nyt <- fetchPrepNyt()
+last_update <- now(tzone = "GMT")
 
-last_update <- paste(now(), Sys.timezone())
- 
 # control over mouse over values in plotly plot
 options(scipen = 999, digits = 1)
 
@@ -23,7 +37,7 @@ ui <- fluidPage(
   add_busy_bar(color = "CornflowerBlue", timeout = 800),
   theme = shinytheme("lumen"),
   titlePanel("Covid-19 comparisons"),
-  tags$div(paste("Last updated:", last_update)),
+  tags$div(paste("Last updated:", paste(last_update, "GMT"))),
   tags$a(
     href = "https://github.com/CSSEGISandData/COVID-19",
     target = "_blank", "[data]"),
@@ -138,7 +152,8 @@ server <- function(input, output, session) {
                    min_stat = input$min_stat,
                    max_days_since = input$max_days_since,
                    smooth_plots = input$smooth_plots,
-                   scale_to_fit = input$scale_to_fit) })
+                   scale_to_fit = input$scale_to_fit,
+                   refresh_interval = refresh_interval) })
   output$compPlotUS <- renderPlotly({
     covtrack %>%
       genPlotComps(geo_level = "state",
@@ -147,7 +162,8 @@ server <- function(input, output, session) {
                    min_stat = input$min_stat,
                    max_days_since = input$max_days_since,
                    smooth_plots = input$smooth_plots,
-                   scale_to_fit = input$scale_to_fit) })
+                   scale_to_fit = input$scale_to_fit,
+                   refresh_interval = refresh_interval) })
   output$compPlotCounty <- renderPlotly({
     # cds %>% 
     #   genPlotComps(geo_level = "location",
@@ -158,7 +174,8 @@ server <- function(input, output, session) {
                    min_stat = input$min_stat,
                    max_days_since = input$max_days_since,
                    smooth_plots = input$smooth_plots,
-                   scale_to_fit = input$scale_to_fit) }) 
+                   scale_to_fit = input$scale_to_fit,
+                   refresh_interval = refresh_interval) }) 
   # output$compData <- renderDataTable({
   #   joined %>% genCompData(min_thresh = input$min_thresh)
   # })
