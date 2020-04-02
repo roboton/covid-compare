@@ -1,5 +1,9 @@
-if (!require("pacman")) install.packages("pacman")
-pacman::p_load(shiny, shinythemes, shinyjs, shinybusy)
+# if (!require("pacman")) install.packages("pacman")
+# pacman::p_load(shiny, shinythemes, shinyjs, shinybusy)
+library(shiny)
+library(shinythemes)
+library(shinyjs)
+library(shinybusy)
 
 source("covidcomp_lib.R", local = TRUE)
 

@@ -1,6 +1,15 @@
-if (!require("pacman")) install.packages("pacman")
-pacman::p_load(tidyverse, lubridate, covid19us, wbstats, tidycensus, jsonlite,
-               dtplyr, plotly)
+# if (!require("pacman")) install.packages("pacman")
+# pacman::p_load(tidyverse, lubridate, covid19us, wbstats, tidycensus, jsonlite,
+#                dtplyr, plotly)
+library(tidyverse)
+library(lubridate)
+library(dtplyr)
+library(plotly)
+library(jsonlite)
+# data sources
+library(covid19us)
+library(wbstats)
+library(tidycensus)
 
 if (Sys.getenv("CENSUS_API_KEY") == "") {
   census_api_key("8900c6e43b36c7974e390b41e93fc60a974afd8f", install = TRUE)
@@ -118,12 +127,17 @@ fetchPrepCovTrackData <- function() {
     gather(stat, total, -date, -state) %>%
     mutate(total = as.numeric(total)) %>%
     left_join(
-      get_estimates("state", variables = "POP") %>%
-        left_join(tibble(state = state.abb, NAME = state.name),
-                  by = "NAME"), by = "state") %>%
-    rename(popM = value) %>%
+      #get_estimates("state", variables = "POP") %>%
+      read_csv("data/SCPRC-EST2019-18+POP-RES.csv") %>%
+        select(popM = POPESTIMATE2019, NAME) %>%
+        left_join(tibble(state = c(state.abb, "DC", "PR"),
+                         NAME = c(state.name, "District of Columbia",
+                                  "Puerto Rico Commonwealth")),
+                  by = "NAME") %>% select(-NAME),
+      by = "state") %>%
+    #rename(popM = value) %>%
     mutate(popM = (1e6 * total) / popM) %>%
-    select(-GEOID, -variable, -NAME) %>%
+    #select(-GEOID, -variable, -NAME) %>%
     pivot_wider(names_from = stat, values_from = c(total, popM)) %>%
     # compute metrics
     mutate(
@@ -217,11 +231,14 @@ fetchPrepNyt <- function(min_deaths = 8) {
     unite(county, county, state, sep = ", ") %>%
     #mutate(county = paste0(county, ", USA")) %>%
     left_join(
-      get_estimates("county", variables = "POP") %>%
-        rename(population = value) %>%
-        mutate(fips = str_sub(GEOID, 1, 5)) %>%
-        select(fips, population),
-              by = "fips") %>%
+      read_csv("data/co-est2019-alldata.csv") %>%
+        unite(fips, STATE, COUNTY, sep = "") %>%
+        select(fips, population = POPESTIMATE2019),
+      #get_estimates("county", variables = "POP") %>%
+      #  rename(population = value) %>%
+      #  mutate(fips = str_sub(GEOID, 1, 5)) %>%
+      #  select(fips, population),
+      by = "fips") %>%
     mutate(population = case_when(
       county == "New York City, New York" ~ 8623000,
       county == "Kansas City, Missouri" ~ 488943,
@@ -230,7 +247,8 @@ fetchPrepNyt <- function(min_deaths = 8) {
     group_by(county) %>%
     mutate(max_deaths = max(total[stat == "deaths"], na.rm = TRUE)) %>%
     ungroup() %>%
-    filter(max_deaths >= min_deaths)
+    filter(max_deaths >= min_deaths) %>%
+    select(-fips, -population, -max_deaths)
 }
 
 # plot comps function

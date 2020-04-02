@@ -318,6 +318,8 @@ names(cds_data) %>%
   mutate(popM = value / population * 1e6) -> cds
 ```
 
+# NYT data
+
 ```{r}
 read_csv(url("https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv")) %>%
   mutate(cfr = deaths / cases, county = paste(county, "County")) %>%
@@ -333,5 +335,19 @@ read_csv(url("https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-
   ungroup() %>%
   filter(max_deaths >= 5) %>%
   genPlotComps(geo_level = "county")
+```
+
+# Fluview
+
+```{r}
+library(cdcfluview)
+```
+
+```{r}
+get_flu_data()
+```
+
+```{r}
+pi_mortality()
 ```
 
