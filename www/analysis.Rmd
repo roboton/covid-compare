@@ -409,28 +409,164 @@ cdcfluview::geographic_spread(years = 2019) #%>%
   mutate_if(is.character, as.factor) %>% summary()
 ```
 
-```{r}
-cdcfluview::geographic_spread(years = 2019) %>%
+```{r fig.height=8}
+cdcfluview::geographic_spread(years = c(2018, 2019)) %>%
   mutate(weeks = 1) %>%
   spread(activity_estimate, weeks, fill = 0) %>%
-  group_by(statename) %>%
-  summarise_at(vars(`Local Activity`:`Widespread`), sum) %>%
-  mutate(max_widespread = max(Widespread, na.rm = TRUE)) %>%
-  gather(spread, weeks, -statename, -max_widespread) %>%
+  group_by(statename, season) %>%
+  summarise_at(vars(`Local Activity`:Widespread), sum) %>%
   ungroup() %>%
-  mutate(statename = fct_reorder(statename, max_widespread, na.rm = TRUE)) %>%
-  ggplot(aes(statename, weeks, fill = spread)) + geom_bar(stat = "identity") +
+  mutate(statename = fct_reorder(statename, Widespread)) %>%
+  gather(spread, weeks, -statename, -season) %>%
+  mutate(spread = fct_rev(fct_relevel(spread, "No Activity", "Sporadic"))) %>%
+  ggplot(aes(statename, weeks, fill = spread)) +
+  facet_wrap(~ season) +
+  geom_bar(stat = "identity") +
   coord_flip()
 ```
 
+## get_flu_data
+
+This function has been deprecated and will be removed in future releases.
+Use either ilinet() or who_nrevss() instead.
 
 ```{r}
-pi_mortality()
+cdcfluview::ilinet(years = c(2018, 2019), region = "state") %>%
+  select(-starts_with("age"), -contains("weight")) %>%
+  mutate(week_end = week_start + weeks(1)) %>%
+  sample_n(10)
 ```
+
 ```{r}
-cdcfluview::get_state_data(years = 2019)
+cdcfluview::who_nrevss(years = 2018:2019, region = "state") %>%
+  `$`("public_health_labs") %>% sample_n(10)
 ```
+
+No dates, just state aggregates for the season.
+
 ```{r}
-cdcfluview::surveillance_areas()
+flu_cases <- cdcfluview::who_nrevss(years = 2017:2019, region = "state") %>%
+  `$`("clinical_labs") %>% 
+  mutate_at(vars(total_specimens:percent_b), as.numeric) %>%
+  mutate(confirmed = total_a + total_b) %>%
+  select(region, year, confirmed, total_specimens, wk_date,
+         percent_positive) %>%
+  gather(stat, value, confirmed, total_specimens, percent_positive)
+
+flu_cases
+
+flu_cases %>%
+  ggplot(aes(wk_date, value, color = region)) +
+  geom_line() + facet_wrap(~ stat, ncol = 1, scales = "free_y")
+```
+
+Clinical has have dates and is less biased than public health labs (public health only get positives from clinical).
+
+## get_hosp_data
+
+```{r}
+(cdcfluview::hospitalizations(years = 2017:2019) %>%
+  filter(age_label == "Overall") -> hospitalizations)
+```
+
+```{r}
+hospitalizations %>%
+  select(year, wk_end, rate) %>%
+```
+
+
+```{r}
+cdcfluview::ili_weekly_activity_indicators() %>%
+  filter(activity_level_label != "Insufficient Data")
+```
+
+```{r}
+cdcfluview::get_weekly_flu_report()
+```
+
+## pi_mortality (deaths)
+
+```{r}
+(flu_deaths <- cdcfluview::pi_mortality(coverage_area = "state", years = 2017:2019))
+```
+
+```{r}
+flu_deaths %>% mutate_if(is.character, as.factor) %>% summary()
+```
+
+```{r}
+flu_deaths %>%
+  select(region_name, seasonid, wk_end, number_influenza, number_pneumonia) %>%
+  rename(state = region_name, date = wk_end) %>%
+  group_by(seasonid) %>% 
+  mutate(year = year(min(date))) %>%
+  ungroup() %>%
+  mutate(deaths = number_influenza + number_pneumonia) %>%
+  mutate(state = paste(state, year, "flu")) %>%
+  select(-starts_with("number_"), -seasonid, -year) %>%
+```
+
+```{r}
+library(tidyverse)
+library(lubridate)
+seasons <- 2017:2019
+
+# region: one of "national", "hhs", "census", or "state"
+flu_cases_data <- cdcfluview::who_nrevss(region = "state", years = seasons) %>%
+  `$`("clinical_labs")
+# coverage_area: coverage area for data (national, state or region)
+flu_deaths_data <- cdcfluview::pi_mortality(coverage_area = "state",
+                                            years = seasons)
+
+flu_cases_data %>%
+  mutate_at(vars(total_specimens:percent_b), as.numeric) %>%
+  mutate(confirmed = total_a + total_b,
+         state = paste(region, year, "flu")) %>%
+  select(state, confirmed, total = total_specimens, date = wk_date) %>%
+  gather(stat, value, confirmed, total, confirmed) %>%
+  bind_rows(
+    flu_deaths_data %>%
+      select(region_name, seasonid, wk_end, number_influenza, number_pneumonia) %>%
+      rename(state = region_name, date = wk_end) %>%
+      group_by(seasonid) %>% 
+      mutate(year = year(min(date))) %>%
+      ungroup() %>%
+      mutate(deaths = number_influenza + number_pneumonia) %>%
+      mutate(state = paste(state, year, "flu")) %>%
+      select(-starts_with("number_"), -seasonid, -year) %>%
+      gather(stat, value, deaths))
+```
+
+
+```{r}
+flu_deaths_data %>%
+  select(region_name, seasonid, wk_start, number_influenza, number_pneumonia) %>%
+  rename(state = region_name, date = wk_start) %>%
+  group_by(seasonid) %>% 
+  mutate(year = year(min(date))) %>%
+  ungroup() %>% select(-seasonid) %>%
+  mutate(deaths = number_influenza + number_pneumonia) %>%
+  #mutate(state = paste(state, year, "flu")) %>%
+  select(-starts_with("number_")) %>%
+  left_join(
+    flu_cases_data %>%
+      mutate_at(vars(total_specimens:percent_b), as.numeric) %>%
+      mutate(confirmed = total_a + total_b,
+             state = paste(region, year, "flu")) %>%
+      select(state, date = wk_date, confirmed, total = total_specimens),
+    by = c("state", "date")) %>%
+  mutate(cfr = deaths/confirmed, ptr = confirmed / total) %>%
+  gather(stat, total, -state, -date, -year) %>%
+  left_join(
+    read_csv("../data/SCPRC-EST2019-18+POP-RES.csv") %>%
+      select(popM = POPESTIMATE2019, state = NAME), by = "state") %>%
+  mutate(popM = if_else(state == "New York City", 8623000, popM),
+         popM = (total * 1e6) / popM) %>%
+  left_join(tibble(
+    state = c(state.name, "District of Columbia", "New York City"),
+    abb = c(state.abb, "DC", "NYC")), by = "state") %>%
+  select(-state, state = abb) %>%
+  mutate(state = paste(state, year, "flu")) %>%
+  select(-year)
 ```
 
