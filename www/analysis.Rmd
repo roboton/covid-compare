@@ -340,14 +340,97 @@ read_csv(url("https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-
 # Fluview
 
 ```{r}
-library(cdcfluview)
+cdcfluview::
+```
+
+
+## age_group_distribution
+```{r}
+help(age_group_distribution)
+```
+
+Age Group Distribution of Influenza Positive Tests Reported by Public Health Laboratories
+Description
+Retrieves the age group distribution of influenza positive tests that are reported by public health laboratories by influenza virus type and subtype/lineage. Laboratory data from multiple seasons and different age groups is provided.
+
+Usage
+age_group_distribution(years = NULL)
+Arguments
+years	
+a vector of years to retrieve data for (i.e. 2014 for CDC flu season 2014-2015). CDC has data for this API going back to 1997. Default value (NULL) means retrieve all years. NOTE: if you happen to specify a 2-digit season value (i.e. 57 == 2017-2018) the function is smart enough to retrieve by season ID vs convert that to a year.
+
+References
+CDC FluView Portal
+
+AGD IPT Portal
+
+Examples
+agd <- age_group_distribution(years=2015)
+
+```{r}
+cdcfluview::age_group_distribution(years = 2019) %>%
+  mutate_if(is.character, as.factor) %>% summary()
+```
+By age
+```{r}
+cdcfluview::age_group_distribution(year = 2019) %>%
+  group_by(age_label, wk_end) %>%
+  summarise(confirmed = sum(count)) %>%
+  ggplot(aes(wk_end, confirmed, color = age_label)) + geom_line()
+```
+By mutation
+```{r}
+cdcfluview::age_group_distribution(year = 2019) %>%
+  group_by(vir_label, wk_end) %>%
+  summarise(confirmed = sum(count)) %>%
+  ggplot(aes(wk_end, confirmed, color = vir_label)) + geom_line()
+```
+
+Looks like we have postive tests data (cases) here for influenza broken out by age group and type of virus.  For purposes comparing this to Covid-19, we don't have matching age/mutation data so we'll just stick to counts by week:
+
+```{r}
+cdcfluview::age_group_distribution(year = 2019) %>%
+  group_by(wk_end) %>%
+  summarise(confirmed = sum(count)) %>%
+  mutate(virus = "influenza") %>%
+  ggplot(aes(wk_end, confirmed, color = virus)) +
+  geom_line()
+```
+
+# census_regions
+
+region/state mapping
+
+```{r}
+cdcfluview::census_regions
+```
+```{r}
+cdcfluview::geographic_spread(years = 2019) #%>%
+  mutate_if(is.character, as.factor) %>% summary()
 ```
 
 ```{r}
-get_flu_data()
+cdcfluview::geographic_spread(years = 2019) %>%
+  mutate(weeks = 1) %>%
+  spread(activity_estimate, weeks, fill = 0) %>%
+  group_by(statename) %>%
+  summarise_at(vars(`Local Activity`:`Widespread`), sum) %>%
+  mutate(max_widespread = max(Widespread, na.rm = TRUE)) %>%
+  gather(spread, weeks, -statename, -max_widespread) %>%
+  ungroup() %>%
+  mutate(statename = fct_reorder(statename, max_widespread, na.rm = TRUE)) %>%
+  ggplot(aes(statename, weeks, fill = spread)) + geom_bar(stat = "identity") +
+  coord_flip()
 ```
+
 
 ```{r}
 pi_mortality()
+```
+```{r}
+cdcfluview::get_state_data(years = 2019)
+```
+```{r}
+cdcfluview::surveillance_areas()
 ```
 
