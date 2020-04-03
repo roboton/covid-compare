@@ -249,7 +249,7 @@ fetchPrepNyt <- function(min_deaths = 8) {
     select(-fips, -population, -max_deaths)
 }
 
-fetchPrepCdcFlu <- function(seasons = 2017) {
+fetchPrepCdcFlu <- function(seasons = 2019) {
   # region: one of "national", "hhs", "census", or "state"
   flu_cases_data <- cdcfluview::who_nrevss(region = "state", years = seasons) %>%
     `$`("clinical_labs")
@@ -264,17 +264,17 @@ fetchPrepCdcFlu <- function(seasons = 2017) {
     group_by(seasonid) %>% 
     mutate(year = year(min(date))) %>%
     ungroup() %>% select(-seasonid) %>%
-    #mutate(deaths = number_influenza + number_pneumonia) %>%
-    mutate(deaths = number_influenza) %>%
+    mutate(deaths = number_influenza + number_pneumonia) %>%
+    #mutate(deaths = number_influenza) %>%
     #mutate(state = paste(state, year, "flu")) %>%
     select(-starts_with("number_")) %>%
     left_join(
       flu_cases_data %>%
         mutate_at(vars(total_specimens:percent_b), as.numeric) %>%
-        mutate(confirmed = total_a + total_b,
-               state = paste(region, year, "flu")) %>%
-        select(state, date = wk_date, confirmed, total = total_specimens),
+        mutate(confirmed = total_a + total_b) %>%
+        select(state = region, date = wk_date, confirmed, total = total_specimens),
       by = c("state", "date")) %>%
+    mutate_at(vars(deaths, confirmed, total), coalesce, 0) %>%
     group_by(state, year) %>% arrange(date) %>%
     mutate(deaths = cumsum(deaths), confirmed = cumsum(confirmed),
            total = cumsum(total)) %>%
@@ -290,24 +290,28 @@ fetchPrepCdcFlu <- function(seasons = 2017) {
       state = c(state.name, "District of Columbia", "New York City"),
       abb = c(state.abb, "DC", "NYC")), by = "state") %>%
     select(-state, state = abb) %>%
-    mutate(state = paste(state, year, "flu")) %>%
+    mutate(state = paste(state, year, "pneu/flu")) %>%
     select(-year)
 }
 
 # plot comps function
 genCompData <- function(df, geo_level = NA, min_stat = "deaths",
-                        min_thresh = NA, per_million = TRUE) {
+                        min_thresh = NA, per_million = TRUE,
+                        add_flu = FALSE) {
   stat_col <- {if (per_million) "popM" else "total"}
   
   if (is.na(min_thresh)) {
     min_thresh <- {if (per_million) 1 else 10}
   } 
+  
+  if (!add_flu) {
+    df <- df %>% filter(!str_ends(!!sym(geo_level), "flu"))
+  }
  
   df %>%
     rename(location = all_of(geo_level)) %>%
     # get max_total and first_date per location/stat
     group_by(location, stat) %>%
-    
     mutate(max_total = max(!!sym(stat_col), na.rm = TRUE),
            first_date = suppressWarnings(
              min(date[!!sym(stat_col) >= min_thresh], na.rm = TRUE))) %>%
@@ -427,7 +431,8 @@ cleanPlotly <- function(p, smooth_plots = TRUE) {
 genPlotComps <- function(
   df, min_stat = "deaths", geo_level = "country", min_thresh = 1,
   max_days_since = 30, min_days_since = 3, smooth_plots = TRUE,
-  scale_to_fit = TRUE, per_million = TRUE, refresh_interval = hours(6)) {
+  scale_to_fit = TRUE, per_million = TRUE, refresh_interval = hours(6),
+  add_flu = FALSE) {
   
   # refresh data after refresh_interval 
   data_age <- as.period(now() - last_update)
@@ -437,7 +442,8 @@ genPlotComps <- function(
   }
   
   df %>% genCompData(geo_level = geo_level, min_thresh = min_thresh,
-                     per_million = per_million, min_stat = min_stat) %>%
+                     per_million = per_million, min_stat = min_stat,
+                     add_flu = add_flu) %>%
     # filter plots
     filter(!stat %in% c("negative", "pending")) %>%
     filter(!(endsWith(stat, "r") & value_type == "double_days")) %>%

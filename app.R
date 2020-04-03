@@ -32,6 +32,7 @@ last_update <- now(tzone = "GMT")
 options(scipen = 999, digits = 1)
 
 ui <- fluidPage(
+  tags$head(includeHTML(("www/google-analytics.html"))),
   useShinyjs(), # for moving showcase code to the bottom
   add_busy_bar(color = "CornflowerBlue", timeout = 800),
   theme = shinytheme("lumen"),
@@ -40,9 +41,9 @@ ui <- fluidPage(
   tags$a(
     href = "https://github.com/CSSEGISandData/COVID-19",
     target = "_blank", "[data]"),
-  # tags$a(
-  #   href = "https://robon.shinyapps.io/covidcomp/?showcase=1",
-  #   target = "_blank", "[showcase]"),
+  tags$a(
+    href = "https://robon.shinyapps.io/covidcomp/?showcase=1",
+    target = "_blank", "[showcase]"),
   tags$a(
     href = "https://github.com/roboton/covid-compare",
     target = "_blank", "[git]"),
@@ -60,12 +61,14 @@ ui <- fluidPage(
       numericInput("min_thresh",
                    "initial number of deaths/cases:",
                    min = 0, value = min_global),
+      checkboxInput("per_million",
+                    "Counts per million people", value = TRUE),
       numericInput("max_days_since",
                    "days since initial number of deaths/cases:",
                    min = 0, value = 30),
       # plot options
-      checkboxInput("per_million",
-                    "Counts per million people", value = TRUE),
+      checkboxInput("add_flu",
+                    "Add flu data (US States only, slow!)", value = FALSE),
       checkboxInput("smooth_plots",
                     "Smooth plot values", value = TRUE), 
       checkboxInput("scale_to_fit",
@@ -162,7 +165,8 @@ server <- function(input, output, session) {
                    max_days_since = input$max_days_since,
                    smooth_plots = input$smooth_plots,
                    scale_to_fit = input$scale_to_fit,
-                   refresh_interval = refresh_interval) })
+                   refresh_interval = refresh_interval,
+                   add_flu = input$add_flu) })
   output$compPlotCounty <- renderPlotly({
     # cds %>% 
     #   genPlotComps(geo_level = "location",
