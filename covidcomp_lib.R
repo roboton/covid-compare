@@ -19,7 +19,7 @@ getTsMax <- function(cds_loc, metric) {
     metric))))
 }
 
-join_wb_country <- function(df, join_data,
+joinWbCountry <- function(df, join_data,
                             by=c("Country/Region" = "country")) {
   df %>% left_join(
     join_data %>%
@@ -57,8 +57,8 @@ join_wb_country <- function(df, join_data,
     by = by)
 }
 
-add_country_pop <- function(df, min_popM = 1) {
-  df %>% join_wb_country(
+addCountryPop <- function(df) {
+  df %>% joinWbCountry(
     wb(indicator = "SP.POP.TOTL", startdate = 2018, enddate = 2018) %>%
       rename(popM = value) %>%
       mutate(popM = case_when(
@@ -67,7 +67,6 @@ add_country_pop <- function(df, min_popM = 1) {
         TRUE ~ popM)) %>%
       select(country, popM) %>%
       mutate(popM = popM / 1e6)) %>%
-    filter(popM >= min_popM) %>%
     mutate(popM = value / popM)
 }
 
@@ -97,7 +96,7 @@ fetchPrepJhuData <- function() {
     gather(date, value, -`Country/Region`, -stat) %>%
     # convert date
     mutate(date = mdy(date)) %>%
-    add_country_pop() %>%
+    addCountryPop() %>%
     pivot_wider(names_from = stat, values_from = c(value, popM)) %>%
     mutate(value_cfr = value_deaths / value_confirmed,
            popM_cfr = popM_deaths / popM_confirmed) %>%
@@ -245,20 +244,22 @@ fetchPrepNyt <- function(min_deaths = 5) {
     rename(confirmed = cases) %>%
     mutate(cfr = deaths / confirmed) %>%
     gather(stat, total, confirmed, deaths, cfr) %>%
-    mutate(county = if_else(str_ends(county, "City"), county,
-                            paste(county, "County"))) %>%
-    unite(county, county, state, sep = ", ") %>%
-    mutate(county = paste0(county, ", USA")) %>%
+    # add population
     left_join(
       read_csv("data/co-est2019-alldata.csv") %>%
         unite(fips, STATE, COUNTY, sep = "") %>%
         select(fips, population = POPESTIMATE2019),
       by = "fips") %>%
     mutate(population = case_when(
-      county == "New York City, New York, USA" ~ 8623000,
-      county == "Kansas City, Missouri, USA" ~ 488943,
+      county == "New York City" ~ 8623000,
+      county == "Kansas City" ~ 488943,
       TRUE ~ population)) %>%  
     mutate(popM = total / population * 1e6) %>%
+    # fix county names
+    mutate(county = if_else(str_ends(county, "City"), county,
+                            paste(county, "County"))) %>%
+    unite(county, county, state, sep = ", ") %>%
+    #mutate(county = paste0(county, ", USA")) %>%
     group_by(county) %>%
     mutate(max_deaths = max(total[stat == "deaths"], na.rm = TRUE)) %>%
     ungroup() %>%
@@ -300,7 +301,7 @@ genCompData <- function(df, geo_level = NA, min_stat = "deaths",
     gather(value_type, value, !!sym(stat_col), double_days)
 }
 
-comp_labeller <- function(labels) {
+compLabeller <- function(labels) {
   if (nrow(labels) > 0 & ncol(labels) > 0) {
     labels <- labels %>% mutate_if(is.factor, as.character) %>%
       mutate(value_type = if_else(
@@ -358,7 +359,7 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
     facet_wrap(vars(stat, value_type), ncol = 2,
                scales = {if (scale_to_fit) "free_y" else "fixed"},
                #labeller = labeller(.multi_line = TRUE)) +
-               labeller = comp_labeller) +
+               labeller = compLabeller) +
     # labelling
     ggtitle(paste0("Metrics since ", min_stat,
                    {if (per_million) " per million people " else ""}, " >= ",
