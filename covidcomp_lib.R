@@ -1,6 +1,3 @@
-# if (!require("pacman")) install.packages("pacman")
-# pacman::p_load(tidyverse, lubridate, covid19us, wbstats, tidycensus, jsonlite,
-#                dtplyr, plotly)
 library(tidyverse)
 library(lubridate)
 library(dtplyr)
@@ -11,10 +8,6 @@ library(covid19us)
 library(wbstats)
 library(tidycensus)
 library(cdcfluview)
-
-if (Sys.getenv("CENSUS_API_KEY") == "") {
-  census_api_key("8900c6e43b36c7974e390b41e93fc60a974afd8f", install = TRUE)
-}
 
 valueOrNA <- function(x) {
   ifelse(!is.null(x), x, NA)
@@ -78,10 +71,7 @@ add_country_pop <- function(df, min_popM = 1) {
     mutate(popM = value / popM)
 }
 
-# 1. fetch
-# 2. normalize
-# 3. compute metrics
-
+# countries
 fetchPrepJhuData <- function() {
   # read data
   jhu_csse_uri <- paste0(
@@ -117,6 +107,7 @@ fetchPrepJhuData <- function() {
            country = `Country/Region`)
 }
 
+# states
 fetchPrepCovTrackData <- function(add_flu = TRUE) {
   # fetch
   covid19us::get_states_daily() %>%
@@ -124,29 +115,28 @@ fetchPrepCovTrackData <- function(add_flu = TRUE) {
            total) %>%
     gather(stat, total, -date, -state) %>%
     mutate(total = as.numeric(total)) %>%
+    rename(state_abb = state) %>%
+    # convert state abbrevations to state names
+    left_join(tibble(state_abb = c(state.abb, "DC", "PR", "AS"),
+                     state = c(state.name, "District of Columbia",
+                               "Puerto Rico Commonwealth",
+                               "American Samoa")),
+                  by = "state_abb") %>%
+    select(-state_abb) %>%
+    # filter out American Samoa, which is missing from census state popluations.
+    filter(!is.na(state)) %>%
     left_join(
-      #get_estimates("state", variables = "POP") %>%
      read_csv("data/SCPRC-EST2019-18+POP-RES.csv") %>%
-        select(popM = POPESTIMATE2019, NAME) %>%
-        left_join(tibble(state = c(state.abb, "DC", "PR"),
-                         NAME = c(state.name, "District of Columbia",
-                                  "Puerto Rico Commonwealth")),
-                  by = "NAME") %>% select(-NAME),
+        select(popM = POPESTIMATE2019, state = NAME),
       by = "state") %>%
-    #rename(popM = value) %>%
     mutate(popM = (1e6 * total) / popM) %>%
-    #select(-GEOID, -variable, -NAME) %>%
     pivot_wider(names_from = stat, values_from = c(total, popM)) %>%
     # compute metrics
     mutate(
       total_cfr = total_death / total_positive,
       total_ptr = total_positive / (total_positive + total_negative),
-      # total_hr = total_hospitalized / total_positive,
-      # total_dhr = total_death / total_hospitalized,
       popM_cfr = popM_death / popM_positive,
       popM_ptr = popM_positive / (popM_positive + popM_negative) #,
-      # popM_hr = popM_hospitalized / popM_positive,
-      # popM_dhr = popM_death / popM_hospitalized
       ) %>%
     pivot_longer(c(-state, -date), names_to = c(".value", "stat"),
                  names_sep = "_") %>%
@@ -154,7 +144,50 @@ fetchPrepCovTrackData <- function(add_flu = TRUE) {
       stat == "positive" ~ "confirmed",
       stat == "death" ~ "deaths",
       TRUE ~ stat
-    )) %>% {if (add_flu) bind_rows(., fetchPrepCdcFlu()) else identity(.)}
+    )) %>%
+    mutate(state = paste0(state, ", USA")) %>%
+    {if (add_flu) bind_rows(., fetchPrepCdcFlu()) else identity(.)}
+}
+
+# flu states
+fetchPrepCdcFlu <- function(seasons = 2017:2019) {
+  # region: one of "national", "hhs", "census", or "state"
+  flu_cases_data <- cdcfluview::who_nrevss(region = "state", years = seasons) %>%
+    `$`("clinical_labs")
+  # coverage_area: coverage area for data (national, state or region)
+  flu_deaths_data <- cdcfluview::pi_mortality(coverage_area = "state",
+                                              years = seasons)
+
+  flu_deaths_data %>%
+    select(region_name, seasonid, wk_start, number_influenza,
+           number_pneumonia) %>%
+    rename(state = region_name, date = wk_start) %>%
+    group_by(seasonid) %>% 
+    mutate(year = year(min(date))) %>%
+    ungroup() %>% select(-seasonid) %>%
+    #mutate(deaths = number_influenza) %>%
+    mutate(deaths = number_influenza + number_pneumonia) %>%
+    select(-starts_with("number_")) %>%
+    left_join(
+      flu_cases_data %>%
+        mutate_at(vars(total_specimens:percent_b), as.numeric) %>%
+        mutate(confirmed = total_a + total_b) %>%
+        select(state = region, date = wk_date, confirmed, total = total_specimens),
+      by = c("state", "date")) %>%
+    mutate_at(vars(deaths, confirmed, total), coalesce, 0) %>%
+    group_by(state, year) %>% arrange(date) %>%
+    mutate(deaths = cumsum(deaths), confirmed = cumsum(confirmed),
+           total = cumsum(total)) %>%
+    ungroup() %>% 
+    mutate(cfr = deaths/confirmed, ptr = confirmed / total) %>%
+    gather(stat, total, -state, -date, -year) %>%
+    left_join(
+      read_csv("data/SCPRC-EST2019-18+POP-RES.csv") %>%
+        select(popM = POPESTIMATE2019, state = NAME), by = "state") %>%
+    mutate(popM = if_else(state == "New York City", 8623000, popM),
+           popM = (total * 1e6) / popM) %>%
+    mutate(state = paste0(state, ", USA ", year, " pneu/flu")) %>%
+    select(-year)
 }
 
 fetchPrepCovDataScrape <- function() {
@@ -176,9 +209,6 @@ fetchPrepCovDataScrape <- function() {
         max_tested = getTsMax(cds_data[[x]], "tested"),
         max_active = getTsMax(cds_data[[x]], "active"),
         max_recovered = getTsMax(cds_data[[x]], "recovered"),
-        # deaths_ts = lapply(names(cds_data[[x]]$dates), FUN = function(x) {
-        #   c(x = valueOrNA(cds_data[[x]]$dates[[x]]$deaths))
-        # }),
         date = list(names(cds_data[[x]]$dates)),
         ts_values = list(cds_data[[x]]$dates))
       }) %>%
@@ -199,47 +229,34 @@ fetchPrepCovDataScrape <- function() {
       date = ymd(date),
       deaths = unlist(sapply(ts_values, FUN = function(x) {
         return(valueOrNA(x$deaths)) })),
-      # active = unlist(sapply(ts_values, FUN = function(x) {
-      #   return(valueOrNA(x$active)) })),
       confirmed = unlist(sapply(ts_values, FUN = function(x) {
         return(valueOrNA(x$cases)) })),
-      # recovered = unlist(sapply(ts_values, FUN = function(x) {
-      #   return(valueOrNA(x$recovered)) })),
-      # total = unlist(sapply(ts_values, FUN = function(x) {
-      #   return(valueOrNA(x$tested)) })),
-      # growthFactor = unlist(sapply(ts_values, FUN = function(x) {
-      #   return(valueOrNA(x$growthFactor)) })),
       cfr = deaths / confirmed #,
-      #ptr = confirmed / total
-      #crr = recovered / confirmed
       ) %>%
     select(-ts_values) %>%
     gather(stat, value, deaths, confirmed, cfr) %>%
     mutate(popM = value / population * 1e6)
 }
 
-fetchPrepNyt <- function(min_deaths = 8) {
+# counties
+fetchPrepNyt <- function(min_deaths = 5) {
   read_csv(url(
     "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv")) %>%
     rename(confirmed = cases) %>%
     mutate(cfr = deaths / confirmed) %>%
-    # mutate(state = unlist(sapply(state, FUN = function(x) {
-    #   unlist(valueOrNA(state.abb[which(state.name == x)])) }))) %>%
     gather(stat, total, confirmed, deaths, cfr) %>%
+    mutate(county = if_else(str_ends(county, "City"), county,
+                            paste(county, "County"))) %>%
     unite(county, county, state, sep = ", ") %>%
-    #mutate(county = paste0(county, ", USA")) %>%
+    mutate(county = paste0(county, ", USA")) %>%
     left_join(
       read_csv("data/co-est2019-alldata.csv") %>%
         unite(fips, STATE, COUNTY, sep = "") %>%
         select(fips, population = POPESTIMATE2019),
-      #get_estimates("county", variables = "POP") %>%
-      #  rename(population = value) %>%
-      #  mutate(fips = str_sub(GEOID, 1, 5)) %>%
-      #  select(fips, population),
       by = "fips") %>%
     mutate(population = case_when(
-      county == "New York City, New York" ~ 8623000,
-      county == "Kansas City, Missouri" ~ 488943,
+      county == "New York City, New York, USA" ~ 8623000,
+      county == "Kansas City, Missouri, USA" ~ 488943,
       TRUE ~ population)) %>%  
     mutate(popM = total / population * 1e6) %>%
     group_by(county) %>%
@@ -249,64 +266,14 @@ fetchPrepNyt <- function(min_deaths = 8) {
     select(-fips, -population, -max_deaths)
 }
 
-fetchPrepCdcFlu <- function(seasons = 2019) {
-  # region: one of "national", "hhs", "census", or "state"
-  flu_cases_data <- cdcfluview::who_nrevss(region = "state", years = seasons) %>%
-    `$`("clinical_labs")
-  # coverage_area: coverage area for data (national, state or region)
-  flu_deaths_data <- cdcfluview::pi_mortality(coverage_area = "state",
-                                              years = seasons)
-
-  flu_deaths_data %>%
-    select(region_name, seasonid, wk_start, number_influenza,
-           number_pneumonia) %>%
-    rename(state = region_name, date = wk_start) %>%
-    group_by(seasonid) %>% 
-    mutate(year = year(min(date))) %>%
-    ungroup() %>% select(-seasonid) %>%
-    mutate(deaths = number_influenza + number_pneumonia) %>%
-    #mutate(deaths = number_influenza) %>%
-    #mutate(state = paste(state, year, "flu")) %>%
-    select(-starts_with("number_")) %>%
-    left_join(
-      flu_cases_data %>%
-        mutate_at(vars(total_specimens:percent_b), as.numeric) %>%
-        mutate(confirmed = total_a + total_b) %>%
-        select(state = region, date = wk_date, confirmed, total = total_specimens),
-      by = c("state", "date")) %>%
-    mutate_at(vars(deaths, confirmed, total), coalesce, 0) %>%
-    group_by(state, year) %>% arrange(date) %>%
-    mutate(deaths = cumsum(deaths), confirmed = cumsum(confirmed),
-           total = cumsum(total)) %>%
-    ungroup() %>% 
-    mutate(cfr = deaths/confirmed, ptr = confirmed / total) %>%
-    gather(stat, total, -state, -date, -year) %>%
-    left_join(
-      read_csv("data/SCPRC-EST2019-18+POP-RES.csv") %>%
-        select(popM = POPESTIMATE2019, state = NAME), by = "state") %>%
-    mutate(popM = if_else(state == "New York City", 8623000, popM),
-           popM = (total * 1e6) / popM) %>%
-    left_join(tibble(
-      state = c(state.name, "District of Columbia", "New York City"),
-      abb = c(state.abb, "DC", "NYC")), by = "state") %>%
-    select(-state, state = abb) %>%
-    mutate(state = paste(state, year, "pneu/flu")) %>%
-    select(-year)
-}
-
 # plot comps function
 genCompData <- function(df, geo_level = NA, min_stat = "deaths",
-                        min_thresh = NA, per_million = TRUE,
-                        add_flu = FALSE) {
+                        min_thresh = NA, per_million = TRUE) {
   stat_col <- {if (per_million) "popM" else "total"}
   
   if (is.na(min_thresh)) {
     min_thresh <- {if (per_million) 1 else 10}
   } 
-  
-  if (!add_flu) {
-    df <- df %>% filter(!str_ends(!!sym(geo_level), "flu"))
-  }
  
   df %>%
     rename(location = all_of(geo_level)) %>%
@@ -416,7 +383,7 @@ cleanPlotly <- function(p, smooth_plots = TRUE) {
   # edit data properties (edit and copy)
   gp$x$data <- lapply(gp$x$data, FUN = function(x) {
     # show default countries by default
-    x$visible <- ifelse(x$name %in% default_locations, TRUE, "legendonly")
+    # x$visible <- ifelse(x$name %in% default_locations, TRUE, "legendonly")
     # only remove line hover over text if we're smoothing plots
     if (x$mode == "lines" && smooth_plots) {
       x$hoverinfo <- "none"
@@ -431,8 +398,7 @@ cleanPlotly <- function(p, smooth_plots = TRUE) {
 genPlotComps <- function(
   df, min_stat = "deaths", geo_level = "country", min_thresh = 1,
   max_days_since = 30, min_days_since = 3, smooth_plots = TRUE,
-  scale_to_fit = TRUE, per_million = TRUE, refresh_interval = hours(6),
-  add_flu = FALSE) {
+  scale_to_fit = TRUE, per_million = TRUE, refresh_interval = hours(6)) {
   
   # refresh data after refresh_interval 
   data_age <- as.period(now() - last_update)
@@ -442,8 +408,7 @@ genPlotComps <- function(
   }
   
   df %>% genCompData(geo_level = geo_level, min_thresh = min_thresh,
-                     per_million = per_million, min_stat = min_stat,
-                     add_flu = add_flu) %>%
+                     per_million = per_million, min_stat = min_stat) %>%
     # filter plots
     filter(!stat %in% c("negative", "pending")) %>%
     filter(!(endsWith(stat, "r") & value_type == "double_days")) %>%
