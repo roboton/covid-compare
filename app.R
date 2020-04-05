@@ -79,6 +79,7 @@ ui <- fluidPage(
       p("(2) Days to double, the metric in the second column seeks to give us an intuitive measure of how quickly the measures in the first column are growing over time.  It is computed as the number of days it took to double the counts in the first column.  Pandemics are scary because of exponential growth, and days to double is relatively intuitive way of understanding that."),
       p("Data from ", a(href = "https://coronavirus.jhu.edu/map.html", "JHU CSSE"),
         ", ",  a(href = "https://github.com/nytimes/covid-19-data", "NY Times"), 
+        ", ",  a(href = "https://www.cdc.gov/flu/weekly/index.htm", "CDC FluView"), 
         " and ", a(href = "https://covidtracking.com/", "Covid Tracking Project"),
         ". Great ideas from ", a(href = "https://twitter.com/loeserjohn", "John.")),
       width = 2),
