@@ -1,5 +1,3 @@
-# if (!require("pacman")) install.packages("pacman")
-# pacman::p_load(shiny, shinythemes, shinyjs, shinybusy)
 library(shiny)
 library(shinythemes)
 library(shinyjs)
@@ -8,7 +6,6 @@ library(shinybusy)
 source("covidcomp_lib.R", local = TRUE)
 
 # set up global params
-min_us <- 1
 min_global <- 1
 refresh_interval <- hours(6)
 
@@ -26,6 +23,24 @@ default_locations <- c("US", "Spain", "Korea, South", "Italy", "China", "Iran",
 jhu <- fetchPrepJhuData()
 covtrack <- fetchPrepCovTrackData()
 nyt <- fetchPrepNyt()
+
+all_locs <- jhu %>%
+  rename(location = country) %>%
+  mutate(aggregate = "country") %>%
+  bind_rows(
+  covtrack %>%
+    rename(location = state) %>%
+    mutate(aggregate = "state"),
+  nyt %>%
+    rename(location = county) %>%
+    mutate(aggregate = "county")) %>%
+  group_by(location) %>%
+  filter(any(stat == "deaths" & (!is.nan(popM) & popM >= min_global))) %>%
+  ungroup()
+  
+
+loc_list <- all_locs %>% select(location, aggregate) %>% unique()
+
 last_update <- now(tzone = "GMT")
 
 # control over mouse over values in plotly plot
@@ -50,12 +65,13 @@ ui <- fluidPage(
   tags$a(
     href = "mailto:roberton@gmail.com",
     target = "_blank", "[contact]"),
-  # tags$a(
-  #   href = "https://robon.shinyapps.io/covidcomp/covidcomp_static.html",
-  #   target = "_blank", "[too slow?]"),
   sidebarLayout(
     sidebarPanel(
       # data options
+      selectizeInput(
+        "location", "Location", choices = loc_list %>% select(location),
+        selected = default_locations,
+        multiple = TRUE),
       selectInput("min_stat", "metric to compare by:",
                   c("Deaths" = "deaths", "Confirmed cases" = "confirmed")),
       numericInput("min_thresh",
@@ -67,8 +83,6 @@ ui <- fluidPage(
                    "days since initial number of deaths/cases:",
                    min = 0, value = 30),
       # plot options
-      checkboxInput("add_flu",
-                    "Add flu data (US States only, slow!)", value = FALSE),
       checkboxInput("smooth_plots",
                     "Smooth plot values", value = TRUE), 
       checkboxInput("scale_to_fit",
@@ -87,22 +101,36 @@ ui <- fluidPage(
       tabsetPanel(
         id = "plotTabs", type = "tabs",
         tabPanel(
-          "Global", value = "Global",
+          "Global", value = "Plots",
           plotlyOutput(
             "compPlot", width = "100%", height = "1200px"),
             downloadButton("downloadGlobalData", "download data (csv)")
         ),
         tabPanel(
-          "US States", value = "US",
-          plotlyOutput(
-            "compPlotUS", width = "100%", height = "1600px"),
-            downloadButton("downloadUSData", "download data (csv)")
-        ),
-        tabPanel(
-          "US Counties", value = "County",
-          plotlyOutput(
-            "compPlotCounty", width = "100%", height = "1200px"),
-            downloadButton("downloadCountyData", "download data (csv)")
+          "About",
+          h4("Why does my country not show up here?"),
+          p("By default only countries that have one death per million people are shown and have a population of at least 1M people. Setting initial deaths to zero, for example, will show all countries."),
+          h4("Why does my US state not show up here?"),
+          p("By default only states that have one death per million people are shown. Setting initial deaths to zero, for example, will show all states."),
+          h4("Why does my US county not show up here?"),
+          p("By default only counties that have one death per million people are shown.  Counties with less than eight deaths are also not shown. Setting initial deaths, for example, to zero will show all counties with five or more deaths."),
+          h4("How frequently does this update?"),
+          p("Daily. Last updated date is shown below the title."),
+          h4("Where does the data come from?"),
+          p(a(href = "https://coronavirus.jhu.edu/map.html", "John Hopkins CSSE"),
+            " for country data, the ",
+            a(href = "https://covidtracking.com/", "Covid Tracking Project"),
+            " for US state data, and the ",
+            a(href = "https://github.com/nytimes/covid-19-data",
+              "New York Times"), " for US county data."),
+          h4("When I unclick a location, the plot moves. Why does that happen?"),
+          p("The y-axis scales to the minimum and maximum values displayed on the plot."),
+          h4("What does it mean for days to double to increase over time?"),
+          p("It's taking longer and longer for your counts to double - this is good for things we don't want like deaths and cases."),
+          h4("Why did you choose these locations to show by default?"),
+          p("The default locations are chosen for no good reason besides that they are often talked about in the press. Please explore by clicking and unclicking the locations on the right.  Double-clicking a selected location will display only that location's plot."),
+          h4("What does the Download button do?"),
+          p("Downloads the data (in csv format) used for the set of plots displayed.")
         ),
         tabPanel(
           "FAQ",
@@ -130,9 +158,6 @@ ui <- fluidPage(
           h4("What does the Download button do?"),
           p("Downloads the data (in csv format) used for the set of plots displayed.")
         )
-        # tabPanel(
-        #   "Data", dataTableOutput("compData"),
-        #   downloadButton("downloadCompData", "Download"))
       ),
       width = 10
     )
@@ -141,15 +166,10 @@ ui <- fluidPage(
  
 server <- function(input, output, session) {
   shinyjs::runjs("toggleCodePosition();")
-  # observe({
-  #   updateNumericInput(
-  #     session, "min_thresh",
-  #     value = {if (input$plotTabs == "US") min_us else min_global})
-  # })
-  
   output$compPlot <- renderPlotly({
-    jhu %>%
-      genPlotComps(geo_level = "country",
+    all_locs %>%
+      filter(location %in% input$location) %>%
+      genPlotComps(geo_level = "location",
                    min_thresh = input$min_thresh,
                    per_million = input$per_million,
                    min_stat = input$min_stat,
@@ -157,62 +177,14 @@ server <- function(input, output, session) {
                    smooth_plots = input$smooth_plots,
                    scale_to_fit = input$scale_to_fit,
                    refresh_interval = refresh_interval) })
-  output$compPlotUS <- renderPlotly({
-    covtrack %>%
-      genPlotComps(geo_level = "state",
-                   min_thresh = input$min_thresh,
-                   per_million = input$per_million,
-                   min_stat = input$min_stat,
-                   max_days_since = input$max_days_since,
-                   smooth_plots = input$smooth_plots,
-                   scale_to_fit = input$scale_to_fit,
-                   refresh_interval = refresh_interval,
-                   add_flu = input$add_flu) })
-  output$compPlotCounty <- renderPlotly({
-    # cds %>% 
-    #   genPlotComps(geo_level = "location",
-    nyt %>% 
-      genPlotComps(geo_level = "county",
-                   min_thresh = input$min_thresh,
-                   per_million = input$per_million,
-                   min_stat = input$min_stat,
-                   max_days_since = input$max_days_since,
-                   smooth_plots = input$smooth_plots,
-                   scale_to_fit = input$scale_to_fit,
-                   refresh_interval = refresh_interval) }) 
-  # output$compData <- renderDataTable({
-  #   joined %>% genCompData(min_thresh = input$min_thresh)
-  # })
   output$downloadGlobalData <- downloadHandler(
     filename = function() {
       paste0("covid-global-comp-data-", Sys.Date(), ".csv")
     },
     content = function(file) {
-      write_csv(jhu %>% genCompData(
+      write_csv(all_locs %>% genCompData(
         geo_level = "country", min_thresh = input$min_thresh,
         per_million = input$per_million, min_stat = input$min_stat), file)
-    }
-  )
-  output$downloadUSData <- downloadHandler(
-    filename = function() {
-      paste0("covid-us-comp-data-", Sys.Date(), ".csv")
-    },
-    content = function(file) {
-      write_csv(covtrack %>% genCompData(geo_level = "state",
-                                         min_thresh = input$min_thresh,
-                                         per_million = input$per_million,
-                                         min_stat = input$min_stat), file)
-    }
-  )
-  output$downloadCountyData <- downloadHandler(
-    filename = function() {
-      paste0("covid-county-comp-data-", Sys.Date(), ".csv")
-    },
-    content = function(file) {
-      write_csv(nyt %>% genCompData(geo_level = "county",
-                                    min_thresh = input$min_thresh,
-                                    per_million = input$per_million,
-                                    min_stat = input$min_stat), file)
     }
   )
 }
