@@ -9,14 +9,9 @@ source("covidcomp_lib.R", local = TRUE)
 min_global <- 1
 refresh_interval <- hours(6)
 
-default_locations <- c("US", "Spain", "Korea, South", "Italy", "China", "Iran",
-                       "California, USA", "Louisiana, USA", "New York, USA",
-                       "New Jersey, USA",
-                       "King County, Washington",
-                       "Los Angeles County, California",
-                       "Orleans County, Louisiana", 
-                       "Santa Clara County, California",
-                       "Wayne County, Michigan",
+default_locations <- c("US", "Spain", "Korea, South",
+                       "California, USA", "Louisiana, USA", "New Jersey, USA",
+                       "King County, Washington", "Orleans County, Louisiana", 
                        "New York City, New York")
 
 # pull in data
@@ -53,9 +48,6 @@ ui <- fluidPage(
   theme = shinytheme("lumen"),
   titlePanel("Covid-19 comparisons"),
   tags$div(paste("Last updated:", paste(last_update, "GMT"))),
-  tags$a(
-    href = "https://robon.shinyapps.io/covidcomp/?showcase=1",
-    target = "_blank", "[showcase]"),
   tags$a(
     href = "https://github.com/roboton/covid-compare",
     target = "_blank", "[git]"),
