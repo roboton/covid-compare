@@ -54,9 +54,6 @@ ui <- fluidPage(
   titlePanel("Covid-19 comparisons"),
   tags$div(paste("Last updated:", paste(last_update, "GMT"))),
   tags$a(
-    href = "https://github.com/CSSEGISandData/COVID-19",
-    target = "_blank", "[data]"),
-  tags$a(
     href = "https://robon.shinyapps.io/covidcomp/?showcase=1",
     target = "_blank", "[showcase]"),
   tags$a(
@@ -87,6 +84,8 @@ ui <- fluidPage(
                     "Smooth plot values", value = TRUE), 
       checkboxInput("scale_to_fit",
                     "Scale to fit", value = TRUE),
+      checkboxInput("double_days",
+                    "Show double days", value = TRUE),
       h3("Why another dashboard?"),
       p("Facts are useful, but in times like these they can also be overwhelming.  It can be helpful to organize these facts so they can provide perspective and focus our attention to the right places."),
       p("With Covid-19, it’s not enough to display frightening curves or list the death toll. That just tells you how many people died. It doesn’t explain which countries are hit the worst and which are doing relatively well."), 
@@ -97,14 +96,14 @@ ui <- fluidPage(
         ", ",  a(href = "https://www.cdc.gov/flu/weekly/index.htm", "CDC FluView"), 
         " and ", a(href = "https://covidtracking.com/", "Covid Tracking Project"),
         ". Great ideas from ", a(href = "https://twitter.com/loeserjohn", "John.")),
-      width = 3),
+      width = 2),
     mainPanel(
       tabsetPanel(
         id = "plotTabs", type = "tabs",
         tabPanel(
           "Plots", value = "plots",
           plotlyOutput(
-            "compPlot", width = "100%", height = "1200px"),
+            "compPlot", width = "100%", height = "1400px"),
             downloadButton("downloadGlobalData", "download data (csv)")
         ),
         tabPanel(
@@ -137,7 +136,7 @@ ui <- fluidPage(
             " or contact me by ", a(href = "mailto:roberton@gmail.com", "email"))
         )
       ),
-      width = 9
+      width = 10
     )
   )
 )
@@ -154,7 +153,8 @@ server <- function(input, output, session) {
                    max_days_since = input$max_days_since,
                    smooth_plots = input$smooth_plots,
                    scale_to_fit = input$scale_to_fit,
-                   refresh_interval = refresh_interval) })
+                   refresh_interval = refresh_interval,
+                   double_days = input$double_days) })
   output$downloadGlobalData <- downloadHandler(
     filename = function() {
       paste0("covid-global-comp-data-", Sys.Date(), ".csv")

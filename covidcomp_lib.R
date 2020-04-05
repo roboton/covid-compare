@@ -313,8 +313,9 @@ compLabeller <- function(labels) {
 plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
                       max_days_since = 20, min_days_since = 3,
                       smooth_plots = TRUE, scale_to_fit = TRUE,
-                      per_million = TRUE, span = 1) {
+                      per_million = TRUE, span = 1, double_days = FALSE) {
   df %>%
+    { if (!double_days) filter(., value_type != "double_days") else . } %>%
     # lazy filter for erroneous data
     filter(value >= 0) %>%
     # truncate days_since
@@ -356,21 +357,22 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
                                  alpha = 0.8, formula = y ~ x)} +
     {if (smooth_plots) geom_point(alpha = 0.2)} +
     # .multi_line false doesn't work with ggplotly
-    facet_wrap(vars(stat, value_type), ncol = 2,
+    facet_wrap(vars(stat, value_type), ncol = { if (double_days) 2 else 1 },
                scales = {if (scale_to_fit) "free_y" else "fixed"},
                #labeller = labeller(.multi_line = TRUE)) +
                labeller = compLabeller) +
     # labelling
-    ggtitle(paste0("Metrics since ", min_stat,
-                   {if (per_million) " per million people " else ""}, " >= ",
-                   min_thresh)) +
+    # ggtitle(paste0("Metrics since ", min_stat,
+    #                {if (per_million) " per million people " else ""}, " >= ",
+    #                min_thresh)) +
     xlab(paste0("Days since ", min_stat,
                 {if (per_million) " per million people " else ""}, " >= ",
                 min_thresh)) +
     # thematic things
     theme_minimal() +
     theme(legend.title = element_blank(), axis.title.y = element_blank(),
-          plot.title = element_text(hjust = 0.5)) + ylim(0, NA)
+          plot.title = element_text(hjust = 0.5)) +
+    ylim(0, NA)
 }
 
 cleanPlotly <- function(p, smooth_plots = TRUE) {
@@ -399,7 +401,8 @@ cleanPlotly <- function(p, smooth_plots = TRUE) {
 genPlotComps <- function(
   df, min_stat = "deaths", geo_level = "country", min_thresh = 1,
   max_days_since = 30, min_days_since = 3, smooth_plots = TRUE,
-  scale_to_fit = TRUE, per_million = TRUE, refresh_interval = hours(6)) {
+  scale_to_fit = TRUE, per_million = TRUE, refresh_interval = hours(6),
+  double_days = TRUE) {
   
   # refresh data after refresh_interval 
   data_age <- as.period(now() - last_update)
@@ -418,7 +421,7 @@ genPlotComps <- function(
       min_thresh = min_thresh, max_days_since = max_days_since,
       smooth_plots = smooth_plots, min_stat = min_stat,
       scale_to_fit = scale_to_fit, per_million = per_million,
-                     min_days_since = min_days_since) %>%
+      min_days_since = min_days_since, double_days = double_days) %>%
     cleanPlotly(smooth_plots = smooth_plots)
 }
 
