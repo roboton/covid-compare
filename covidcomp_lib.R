@@ -71,6 +71,7 @@ add_country_pop <- function(df, min_popM = 1) {
     mutate(popM = value / popM)
 }
 
+# countries
 fetchPrepJhuData <- function() {
   # read data
   jhu_csse_uri <- paste0(
@@ -106,20 +107,24 @@ fetchPrepJhuData <- function() {
            country = `Country/Region`)
 }
 
+# states
 fetchPrepCovTrackData <- function(add_flu = TRUE) {
   # fetch
   covid19us::get_states_daily() %>%
     select(date, state, positive, negative, pending, hospitalized, death,
            total) %>%
     gather(stat, total, -date, -state) %>%
-    mutate(total = as.numeric(total),
-           state_abb = state) %>%
+    mutate(total = as.numeric(total)) %>%
+    rename(state_abb = state) %>%
     # convert state abbrevations to state names
-    left_join(tibble(state_abb = c(state.abb, "DC", "PR"),
+    left_join(tibble(state_abb = c(state.abb, "DC", "PR", "AS"),
                      state = c(state.name, "District of Columbia",
-                               "Puerto Rico Commonwealth")),
+                               "Puerto Rico Commonwealth",
+                               "American Samoa")),
                   by = "state_abb") %>%
     select(-state_abb) %>%
+    # filter out American Samoa, which is missing from census state popluations.
+    filter(!is.na(state)) %>%
     left_join(
      read_csv("data/SCPRC-EST2019-18+POP-RES.csv") %>%
         select(popM = POPESTIMATE2019, state = NAME),
@@ -139,10 +144,13 @@ fetchPrepCovTrackData <- function(add_flu = TRUE) {
       stat == "positive" ~ "confirmed",
       stat == "death" ~ "deaths",
       TRUE ~ stat
-    )) %>% {if (add_flu) bind_rows(., fetchPrepCdcFlu()) else identity(.)}
+    )) %>%
+    mutate(state = paste0(state, ", USA")) %>%
+    {if (add_flu) bind_rows(., fetchPrepCdcFlu()) else identity(.)}
 }
 
-fetchPrepCdcFlu <- function(seasons = 2019) {
+# flu states
+fetchPrepCdcFlu <- function(seasons = 2017:2019) {
   # region: one of "national", "hhs", "census", or "state"
   flu_cases_data <- cdcfluview::who_nrevss(region = "state", years = seasons) %>%
     `$`("clinical_labs")
@@ -178,11 +186,7 @@ fetchPrepCdcFlu <- function(seasons = 2019) {
         select(popM = POPESTIMATE2019, state = NAME), by = "state") %>%
     mutate(popM = if_else(state == "New York City", 8623000, popM),
            popM = (total * 1e6) / popM) %>%
-    left_join(tibble(
-      state = c(state.name, "District of Columbia", "New York City"),
-      abb = c(state.abb, "DC", "NYC")), by = "state") %>%
-    select(-state, state = abb) %>%
-    mutate(state = paste(state, year, "pneu/flu")) %>%
+    mutate(state = paste0(state, ", USA ", year, " pneu/flu")) %>%
     select(-year)
 }
 
@@ -234,22 +238,25 @@ fetchPrepCovDataScrape <- function() {
     mutate(popM = value / population * 1e6)
 }
 
+# counties
 fetchPrepNyt <- function(min_deaths = 5) {
   read_csv(url(
     "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv")) %>%
     rename(confirmed = cases) %>%
     mutate(cfr = deaths / confirmed) %>%
     gather(stat, total, confirmed, deaths, cfr) %>%
+    mutate(county = if_else(str_ends(county, "City"), county,
+                            paste(county, "County"))) %>%
     unite(county, county, state, sep = ", ") %>%
-    #mutate(county = paste0(county, ", USA")) %>%
+    mutate(county = paste0(county, ", USA")) %>%
     left_join(
       read_csv("data/co-est2019-alldata.csv") %>%
         unite(fips, STATE, COUNTY, sep = "") %>%
         select(fips, population = POPESTIMATE2019),
       by = "fips") %>%
     mutate(population = case_when(
-      county == "New York City, New York" ~ 8623000,
-      county == "Kansas City, Missouri" ~ 488943,
+      county == "New York City, New York, USA" ~ 8623000,
+      county == "Kansas City, Missouri, USA" ~ 488943,
       TRUE ~ population)) %>%  
     mutate(popM = total / population * 1e6) %>%
     group_by(county) %>%
@@ -376,7 +383,7 @@ cleanPlotly <- function(p, smooth_plots = TRUE) {
   # edit data properties (edit and copy)
   gp$x$data <- lapply(gp$x$data, FUN = function(x) {
     # show default countries by default
-    x$visible <- ifelse(x$name %in% default_locations, TRUE, "legendonly")
+    # x$visible <- ifelse(x$name %in% default_locations, TRUE, "legendonly")
     # only remove line hover over text if we're smoothing plots
     if (x$mode == "lines" && smooth_plots) {
       x$hoverinfo <- "none"
