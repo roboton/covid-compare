@@ -218,7 +218,7 @@ fetchPrepCovDataScrape <- function() {
     mutate(popM = value / population * 1e6)
 }
 
-fetchPrepNyt <- function(min_deaths = 8) {
+fetchPrepNyt <- function(min_deaths = 5) {
   read_csv(url(
     "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv")) %>%
     rename(confirmed = cases) %>%
