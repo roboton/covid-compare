@@ -66,9 +66,10 @@ ui <- fluidPage(
     sidebarPanel(
       # data options
       selectizeInput(
-        "location", "Location (Countries, US states and counties)", choices = loc_list %>% select(location),
+        "location", "Countries, US states or counties", choices = loc_list %>% select(location),
         selected = default_locations,
         multiple = TRUE),
+      bookmarkButton(),
       selectInput("min_stat", "metric to compare by:",
                   c("Deaths" = "deaths", "Confirmed cases" = "confirmed")),
       numericInput("min_thresh",
@@ -167,4 +168,4 @@ server <- function(input, output, session) {
   )
 }
 
-shinyApp(ui = ui, server = server)
+shinyApp(ui = ui, server = server, enableBookmarking = "url")
