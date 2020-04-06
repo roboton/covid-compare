@@ -189,7 +189,7 @@ fetchPrepCdcFlu <- function(seasons = 2017:2019) {
     select(-year)
 }
 
-fetchPrepCovDataScrape <- function() {
+fetchPrepCorDataScrape <- function() {
   cds_data <- jsonlite::fromJSON(
     "https://coronadatascraper.com/timeseries-byLocation.json")
  
@@ -234,7 +234,10 @@ fetchPrepCovDataScrape <- function() {
       ) %>%
     select(-ts_values) %>%
     gather(stat, value, deaths, confirmed, cfr) %>%
-    mutate(popM = value / population * 1e6)
+    mutate(popM = value / population * 1e6) %>%
+    group_by(location) %>%
+    filter(any(!is.na(max_deaths))) %>% ungroup() %>%
+    select(location, date, stat, total = value, popM)
 }
 
 # counties
