@@ -12,6 +12,8 @@ refresh_interval <- hours(6)
 default_locations <- c("Hubei, CHN [cds]", 
                        "King County, Washington [nyt]",
                        "Orleans County, Louisiana [nyt]", 
+                       "Louisiana, USA [ctp]", 
+                       "New York, USA [ctp]", 
                        "New York City, New York [nyt]",
                        "Lombardy, ITA [cds]",
                        "Korea, South [jhu]")
