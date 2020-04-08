@@ -70,6 +70,83 @@ addCountryPop <- function(df) {
     mutate(popM = value / popM)
 }
 
+# location list
+addForecast <- function(df, ext_days = 7, span = 1, min_days = 10) {
+  has_dates <- df$date[!is.na(df$total) & !is.na(df$popM)]
+  if (sum(has_dates >= today() - days(min_days)) < min_days) { 
+    pred_dat <- df %>% cbind(total_pred = NA, popM_pred = NA)
+    return(pred_dat)
+  }
+  new_dates <- df$date %>% c(seq(max(., na.rm = T) + 1,
+                                 max(., na.rm = T) + 1 + days(ext_days),
+                                 by = "day"))
+  
+  ts_dat <- df %>%
+    right_join(tibble(date = new_dates), by = "date")
+  
+  pred_dat <- ts_dat %>%
+    mutate(
+      total_pred = loess(total ~ as.numeric(date), data = ts_dat, span = span,
+                         control = loess.control(surface = "direct")) %>%
+        predict(as.numeric(new_dates)),
+      popM_pred = loess(popM ~ as.numeric(date), data = ts_dat, span = span,
+                         control = loess.control(surface = "direct")) %>%
+        predict(as.numeric(new_dates))) %>%
+    mutate_at(vars(ends_with("_pred")), function(x) {
+      x[x < 0] <- 0
+      for (i in 2:length(x)) {
+        x[i] <- { if (x[i] < x[i - 1]) x[i - 1] else x[i] }
+      }
+      return(x)
+    })
+  return(pred_dat)
+}
+
+cleanSd <- function(x) {
+  sd(Filter(function(y) !is.infinite(y), x), na.rm = TRUE)
+}
+
+
+getForecastSeverity <- function(all_locs) {
+  all_locs %>% filter(stat == "deaths") %>%
+    group_by(location) %>% nest() %>%
+    rowwise() %>%
+    mutate(data = list(addForecast(data))) %>% unnest(cols = c(data)) %>%
+    group_by(location) %>%
+    summarise(severity_total = suppressWarnings(
+      max(total_pred, na.rm = TRUE) - max(total, na.rm = TRUE)),
+              severity_popM = suppressWarnings(
+                max(popM_pred, na.rm = TRUE) - max(popM, na.rm = TRUE))) %>%
+    ungroup() %>%
+    mutate(severity = severity_total / cleanSd(severity_total) +
+           severity_popM / cleanSd(severity_popM)) %>%
+    mutate(location = fct_reorder(location, desc(severity)))
+}
+
+getSimpleSeverity <- function(all_locs) {
+  all_locs %>% filter(stat == "deaths") %>%
+      group_by(location) %>% arrange(desc(popM)) %>% top_n(2, wt = popM) %>%
+      slice(1:2) %>% arrange(desc(date)) %>%
+      mutate(day_before = date - days(1) == lead(date),
+             total_diff = total - lead(total), popM_diff = popM - lead(popM)) %>%
+      ungroup() %>% filter(day_before) %>%
+      mutate(total_diff = pmax(as.vector(scale(total_diff, center = FALSE)), 0),
+             popM_diff = pmax(as.vector(scale(popM_diff, center = FALSE)), 0)
+             ) %>%
+      mutate(severity = total_diff + popM_diff) %>%
+      arrange(desc(unlist(severity))) %>% select(location, severity)
+}
+
+# severity can be one of "none", "simple" or "forecast"
+getLocationList <- function(all_locs, severity = "none")  {
+  if (severity == "simple") {
+    return(getSimpleSeverity(all_locs))
+  } else if (severity == "forecst") {
+    return(getForecastSeverity(all_locs))
+  }
+  return(all_locs %>% select(location) %>% unique() %>% mutate(severity = 1))
+}
+
 # countries
 fetchPrepJhuData <- function() {
   # read data
@@ -99,7 +176,8 @@ fetchPrepJhuData <- function() {
     addCountryPop() %>%
     pivot_wider(names_from = stat, values_from = c(value, popM)) %>%
     mutate(value_cfr = value_deaths / value_confirmed,
-           popM_cfr = popM_deaths / popM_confirmed) %>%
+           # don't pop normalize rates (cfr)
+           popM_cfr = value_deaths / value_confirmed) %>%
     pivot_longer(c(-`Country/Region`, -date), names_to = c(".value", "stat"),
                  names_sep = "_") %>%
     rename(total = value,
@@ -134,8 +212,9 @@ fetchPrepCovTrackData <- function(add_flu = TRUE) {
     mutate(
       total_cfr = total_death / total_positive,
       total_ptr = total_positive / (total_positive + total_negative),
-      popM_cfr = popM_death / popM_positive,
-      popM_ptr = popM_positive / (popM_positive + popM_negative) #,
+      # don't pop normalize rates (cfr)
+      popM_cfr = total_death / total_positive,
+      popM_ptr = total_positive / (total_positive + total_negative) #,
       ) %>%
     pivot_longer(c(-state, -date), names_to = c(".value", "stat"),
                  names_sep = "_") %>%
@@ -178,7 +257,7 @@ fetchPrepCdcFlu <- function(seasons = 2017:2019) {
     mutate(deaths = cumsum(deaths), confirmed = cumsum(confirmed),
            total = cumsum(total)) %>%
     ungroup() %>% 
-    mutate(cfr = deaths/confirmed, ptr = confirmed / total) %>%
+    #mutate(cfr = deaths/confirmed, ptr = confirmed / total) %>%
     gather(stat, total, -state, -date, -year) %>%
     left_join(
       read_csv("data/SCPRC-EST2019-18+POP-RES.csv") %>%
@@ -197,21 +276,30 @@ fetchPrepCorDataScrape <- function() {
     lapply(FUN = function(x) {
       list(
         location = x,
-        country = valueOrNA(cds_data[[x]]$country),
+        # geo hierarchy
         aggregate = valueOrNA(cds_data[[x]]$aggregate),
+        country = valueOrNA(cds_data[[x]]$country),
         state = valueOrNA(cds_data[[x]]$state),
-        population = valueOrNA(cds_data[[x]]$population),
         county = valueOrNA(cds_data[[x]]$county),
         city = valueOrNA(cds_data[[x]]$city),
+        # values
+        population = valueOrNA(cds_data[[x]]$population),
+        # max vals
         max_deaths = getTsMax(cds_data[[x]], "deaths"),
         max_cases = getTsMax(cds_data[[x]], "cases"),
         max_tested = getTsMax(cds_data[[x]], "tested"),
         max_active = getTsMax(cds_data[[x]], "active"),
         max_recovered = getTsMax(cds_data[[x]], "recovered"),
+        # time series data
         date = list(names(cds_data[[x]]$dates)),
         ts_values = list(cds_data[[x]]$dates))
       }) %>%
     bind_rows() %>% 
+    # fill in missing populations
+    mutate(
+      population = if_else(str_starts(location, "New York City"),
+                           8623000, as.numeric(population))) %>%
+    filter(!is.na(population)) %>%
     mutate(
       max_deaths = na_if(max_deaths, -Inf),
       max_cases = na_if(max_cases, -Inf),
@@ -230,11 +318,12 @@ fetchPrepCorDataScrape <- function() {
         return(valueOrNA(x$deaths)) })),
       confirmed = unlist(sapply(ts_values, FUN = function(x) {
         return(valueOrNA(x$cases)) })),
-      cfr = deaths / confirmed #,
-      ) %>%
+      cfr = deaths / confirmed) %>%
     select(-ts_values) %>%
     gather(stat, value, deaths, confirmed, cfr) %>%
-    mutate(popM = value / population * 1e6) %>%
+    # don't pop normalize rates (cfr)
+    mutate(popM = if_else(
+      stat %in% c("deaths", "confirmed"), value / population * 1e6, value)) %>%
     group_by(location) %>%
     filter(any(!is.na(max_deaths))) %>% ungroup() %>%
     select(location, date, stat, total = value, popM)
@@ -403,7 +492,7 @@ cleanPlotly <- function(p, smooth_plots = TRUE) {
 
 genPlotComps <- function(
   df, min_stat = "deaths", geo_level = "country", min_thresh = 1,
-  max_days_since = 30, min_days_since = 3, smooth_plots = TRUE,
+  max_days_since = 45, min_days_since = 3, smooth_plots = TRUE,
   scale_to_fit = TRUE, per_million = TRUE, refresh_interval = hours(6),
   double_days = TRUE) {
   

@@ -9,40 +9,53 @@ source("covidcomp_lib.R", local = TRUE)
 min_global <- 1
 refresh_interval <- hours(6)
 
-default_locations <- c("Hubei, CHN [cds]", 
-                       "King County, Washington [nyt]",
-                       "Orleans County, Louisiana [nyt]", 
-                       "Louisiana, USA [ctp]", 
-                       "New York, USA [ctp]", 
-                       "New York City, New York [nyt]",
-                       "Lombardy, ITA [cds]",
-                       "Korea, South [jhu]")
-
 # pull in data
-jhu <- fetchPrepJhuData()
-covtrack <- fetchPrepCovTrackData()
-nyt <- fetchPrepNyt()
-cds <- fetchPrepCorDataScrape()
+# jhu <- fetchPrepJhuData()
+# covtrack <- fetchPrepCovTrackData()
+# nyt <- fetchPrepNyt()
+# cds <- fetchPrepCorDataScrape()
+# 
+# all_locs <- jhu %>%
+#   rename(location = country) %>%
+#   mutate(location = paste(location, "[jhu]")) %>%
+#   bind_rows(
+#     covtrack %>%
+#       rename(location = state) %>%
+#       mutate(location = paste(location, "[ctp]")),
+#     nyt %>%
+#       rename(location = county) %>%
+#       mutate(location = paste(location, "[nyt]")),
+#     cds %>%
+#       mutate(location = paste(location, "[cds]"))
+#   ) %>%
+#   group_by(location) %>%
+#   filter(any(stat == "deaths" & (!is.nan(popM) & popM >= min_global))) %>%
+#   ungroup()
 
-all_locs <- jhu %>%
-  rename(location = country) %>%
-  mutate(location = paste(location, "[jhu]")) %>%
-  bind_rows(
-    covtrack %>%
-      rename(location = state) %>%
-      mutate(location = paste(location, "[ctp]")),
-    nyt %>%
-      rename(location = county) %>%
-      mutate(location = paste(location, "[nyt]")),
-    cds %>%
-      mutate(location = paste(location, "[cds]"))
-  ) %>%
-  group_by(location) %>%
-  filter(any(stat == "deaths" & (!is.nan(popM) & popM >= min_global))) %>%
-  ungroup()
+all_locs <- fetchPrepCorDataScrape()
 
-loc_list <- all_locs %>% pull(location) %>% unique()
-default_locations <- c(default_locations, loc_list %>% sample(1))
+# location_severity <- getLocationSeverity(all_locs)
+# loc_list <- location_severity %>% pull(location) %>% unique()
+# default_locations <- sample(location_severity$location, 8,
+#                             prob = pmax(location_severity$severity, 0))
+
+
+# loc_list <- all_locs %>% pull(location) %>% unique()
+# default_locations <- c("Hubei, China [cds]",
+#                        "King County, Washington [nyt]",
+#                        "Orleans County, Louisiana [nyt]",
+#                        "Louisiana, USA [ctp]",
+#                        "New York, USA [ctp]",
+#                        "New York City, New York [nyt]",
+#                        "Lombardy, ITA [cds]",
+#                        "Korea, South [jhu]")
+
+# default_locations <- c("Hubei, China",
+#                        "Lombardy, Italy",
+#                        "New York City, New York, United States")
+loc_list <- getLocationList(all_locs, severity = "simple")
+# default_locations <- c(default_locations, sample(loc_list$location, size = 3,
+#                                                  prob = loc_list$severity))
 
 last_update <- now(tzone = "GMT")
 
@@ -64,20 +77,23 @@ ui <- function(request) {
     add_busy_bar(color = "CornflowerBlue", timeout = 800),
     theme = shinytheme("lumen"),
     titlePanel("Covid-19 comparisons"),
-    tags$div(paste("Last updated:", paste(last_update, "GMT"))),
     tags$a(
       href = "https://github.com/roboton/covid-compare",
       target = "_blank", "[git]"),
     tags$a(
       href = "mailto:roberton@gmail.com",
       target = "_blank", "[contact]"),
+    tags$span(paste(" Last updated",
+                    round(as.numeric(now() - last_update, units = "hours"), 2),
+                    "hours ago")),
     sidebarLayout(
       sidebarPanel(
         # data options
         selectizeInput(
-          "location", "Countries, US states or counties",
+          "location", "Location",
           choices = loc_list,
-          selected = default_locations,
+          selected = sample(loc_list$location, size = 3,
+                            prob = loc_list$severity),
           options = list(
             placeholder = 'type to select a location'),
           multiple = TRUE),
@@ -91,7 +107,7 @@ ui <- function(request) {
                       "Counts per million people", value = TRUE),
         numericInput("max_days_since",
                      "days since initial number of deaths/cases:",
-                     min = 0, value = 30),
+                     min = 0, value = 45),
         # plot options
         checkboxInput("smooth_plots",
                       "Smooth plot values", value = TRUE), 
@@ -104,11 +120,11 @@ ui <- function(request) {
         p("With Covid-19, it’s not enough to display frightening curves or list the death toll. That just tells you how many people died. It doesn’t explain which countries are hit the worst and which are doing relatively well."), 
         p("This dashboard sets each country to the same starting point: X deaths per million of population.  Deaths are chosen because we believe it is less sensitive than cases to a locale's ability to test. This way, you can compare China, with its huge population and early experience with Covid-19, and Australia, with its much smaller population and later onset."),
         p("In addition, the metric in the second column of plots seek to give us an intuitive measure of how quickly the measures in the first column are growing over time. It is computed as the number of days it took to double the counts in the first column.  Pandemics are scary because of exponential growth, and days to double is relatively intuitive way of understanding that."),
-        p("Data from ", a(href = "https://coronavirus.jhu.edu/map.html", "JHU CSSE"),
-          ", ",  a(href = "https://coronadatascraper.com", "Corona Data Scraper"), 
-          ", ",  a(href = "https://github.com/nytimes/covid-19-data", "NY Times"), 
-          ", ",  a(href = "https://www.cdc.gov/flu/weekly/index.htm", "CDC FluView"), 
-          " and ", a(href = "https://covidtracking.com/", "Covid Tracking Project"),
+        p("Data from ", a(href = "https://coronavirus.jhu.edu/map.html", "JHU CSSE"), "[jhu]",
+          ", ",  a(href = "https://coronadatascraper.com", "Corona Data Scraper"),  "[cds]",
+          ", ",  a(href = "https://github.com/nytimes/covid-19-data", "NY Times [nyt]"), "[nyt]",
+          ", ",  a(href = "https://www.cdc.gov/flu/weekly/index.htm", "CDC FluView"), "[ctp]",
+          " and ", a(href = "https://covidtracking.com/", "Covid Tracking Project"), "[ctp]",
           ". Great ideas from ", a(href = "https://twitter.com/loeserjohn", "John.")),
         width = 2),
       mainPanel(
@@ -122,8 +138,8 @@ ui <- function(request) {
           ),
           tabPanel(
             "FAQ",
-            h4("Why does my country, state, or county not show up here?"),
-            p("By default only locations that have at least one death per million people are compared. Setting initial deaths to zero, for example, will show all locations."),
+            h4("Why does my country, state, province, or county not show up at all?"),
+            p("By default only locations that have at least one death per million people are compared. Setting initial deaths (per million) to zero, for example, will show all locations."),
             h4("How frequently does this update?"),
             p("At least every six hours. Last updated date is shown below the title."),
             h4("Where does the data come from?"),
@@ -138,6 +154,8 @@ ui <- function(request) {
               "[ctp] for US state data, and ",
               a(href = "https://github.com/nytimes/covid-19-data",
                 "New York Times"), "[nyt] for US county data."),
+            h4("How do I add more locations to my plot?"),
+            p("Search as you type from the Location box on the left."),
             h4("How do I hide certain location in my plot?"),
             p("Unclick them from the legend on the right hand side."),
             h4("How do I show just one location in my plot?"),

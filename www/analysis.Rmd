@@ -570,3 +570,111 @@ flu_deaths_data %>%
   select(-year)
 ```
 
+
+```{r}
+fcst <- function(df, ext_days = 7, span = 1, min_days = 5) {
+  has_dates <- df$date[!is.na(df$total) & !is.na(df$popM)]
+  df <<- df
+  if (sum(has_dates >= today() - days(min_days)) < min_days) { 
+    pred_dat <- df %>% cbind(total_pred = NA, popM_pred = NA)
+    return(pred_dat)
+  }
+  new_dates <- df$date %>% c(seq(max(., na.rm = T) + 1,
+                                 max(., na.rm = T) + 1 + days(ext_days),
+                                 by = "day"))
+  
+  ts_dat <- df %>%
+    right_join(tibble(date = new_dates), by = "date")
+  
+  pred_dat <- ts_dat %>%
+    mutate(
+      total_pred = loess(total ~ as.numeric(date), data = ts_dat, span = span,
+                         control = loess.control(surface = "direct")) %>%
+        predict(as.numeric(new_dates)),
+      popM_pred = loess(popM ~ as.numeric(date), data = ts_dat, span = span,
+                         control = loess.control(surface = "direct")) %>%
+        predict(as.numeric(new_dates))) %>%
+    mutate_at(vars(ends_with("_pred")), function(x) {
+      x[x < 0] <- 0
+      for (i in 2:length(x)) {
+        x[i] <- { if (x[i] < x[i - 1]) x[i - 1] else x[i] }
+      }
+      return(x)
+    })
+  return(pred_dat)
+}
+
+plot_fcst <- function(df, location = NA) {
+  df %>%
+    gather(type, value, popM, popM_pred, total, total_pred) %>%
+    mutate(pred = endsWith(type, "_pred")) %>%
+    ggplot(aes(date, value, color = type)) +
+    geom_line(alpha = 0.5) + geom_point(alpha = 0.5) +
+    ggtitle(location)
+}
+
+fcst_locs <- all_locs %>% 
+  group_by(stat, location) %>%
+  nest() %>%
+  rowwise() %>%
+  mutate(pred_data = list(fcst(data)))
+
+fcst_locs %>% sample_n(1) %>%
+  select(-data) %>%
+  unnest(pred_data) %>% 
+  select(-location) %>% plot_fcst()
+```
+
+
+```{r}
+fcst <- function(df, ext_days = 7, span = 1, min_days = 10) {
+  has_dates <- df$date[!is.na(df$total) & !is.na(df$popM)]
+  df <<- df
+  if (sum(has_dates >= today() - days(min_days)) < min_days) { 
+    pred_dat <- df %>% cbind(total_pred = NA, popM_pred = NA)
+    return(pred_dat)
+  }
+  new_dates <- df$date %>% c(seq(max(., na.rm = T) + 1,
+                                 max(., na.rm = T) + 1 + days(ext_days),
+                                 by = "day"))
+  
+  ts_dat <- df %>%
+    right_join(tibble(date = new_dates), by = "date")
+  
+  pred_dat <- ts_dat %>%
+    mutate(
+      total_pred = loess(total ~ as.numeric(date), data = ts_dat, span = span,
+                         control = loess.control(surface = "direct")) %>%
+        predict(as.numeric(new_dates)),
+      popM_pred = loess(popM ~ as.numeric(date), data = ts_dat, span = span,
+                         control = loess.control(surface = "direct")) %>%
+        predict(as.numeric(new_dates))) %>%
+    mutate_at(vars(ends_with("_pred")), function(x) {
+      x[x < 0] <- 0
+      for (i in 2:length(x)) {
+        x[i] <- { if (x[i] < x[i - 1]) x[i - 1] else x[i] }
+      }
+      return(x)
+    })
+  return(pred_dat)
+}
+
+clean_sd <- function(x) {
+  sd(Filter(function(y) !is.infinite(y), x), na.rm = TRUE)
+}
+
+
+all_locs %>% filter(stat == "deaths") %>%
+  group_by(location) %>% nest() %>%
+  rowwise() %>%
+  mutate(data = list(fcst(data))) %>% unnest(cols = c(data)) %>%
+  group_by(location) %>%
+  summarise(severity_total = suppressWarnings(
+    max(total_pred, na.rm = TRUE) - max(total, na.rm = TRUE)),
+            severity_popM = suppressWarnings(
+              max(popM_pred, na.rm = TRUE) - max(popM, na.rm = TRUE))) %>%
+  ungroup() %>%
+  mutate(severity = severity_total / clean_sd(severity_total) +
+         severity_popM / clean_sd(severity_popM)) %>% View()
+```
+
