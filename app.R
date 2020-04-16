@@ -122,7 +122,7 @@ ui <- function(request) {
         p("In addition, the metric in the second column of plots seek to give us an intuitive measure of how quickly the measures in the first column are growing over time. It is computed as the number of days it took to double the counts in the first column.  Pandemics are scary because of exponential growth, and days to double is relatively intuitive way of understanding that."),
         p("Data from ", a(href = "https://coronavirus.jhu.edu/map.html", "JHU CSSE"), "[jhu]",
           ", ",  a(href = "https://coronadatascraper.com", "Corona Data Scraper"),  "[cds]",
-          ", ",  a(href = "https://github.com/nytimes/covid-19-data", "NY Times [nyt]"), "[nyt]",
+          ", ",  a(href = "https://github.com/nytimes/covid-19-data", "NY Times"), "[nyt]",
           ", ",  a(href = "https://www.cdc.gov/flu/weekly/index.htm", "CDC FluView"), "[ctp]",
           " and ", a(href = "https://covidtracking.com/", "Covid Tracking Project"), "[ctp]",
           ". Great ideas from ", a(href = "https://twitter.com/loeserjohn", "John.")),
