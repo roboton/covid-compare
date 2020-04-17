@@ -125,16 +125,20 @@ getForecastSeverity <- function(all_locs) {
 
 getSimpleSeverity <- function(all_locs) {
   all_locs %>% filter(stat == "deaths") %>%
-      group_by(location) %>% arrange(desc(popM)) %>% top_n(2, wt = popM) %>%
-      slice(1:2) %>% arrange(desc(date)) %>%
-      mutate(day_before = date - days(1) == lead(date),
-             total_diff = total - lead(total), popM_diff = popM - lead(popM)) %>%
-      ungroup() %>% filter(day_before) %>%
-      mutate(total_diff = pmax(as.vector(scale(total_diff, center = FALSE)), 0),
-             popM_diff = pmax(as.vector(scale(popM_diff, center = FALSE)), 0)
-             ) %>%
-      mutate(severity = total_diff + popM_diff) %>%
-      arrange(desc(unlist(severity))) %>% select(location, severity)
+    group_by(location) %>%
+    arrange(desc(popM), desc(date)) %>%
+    top_n(2, wt = popM) %>%
+    arrange(desc(date)) %>%
+    mutate(day_before = date - days(1) == lead(date),
+           total_diff = total - lead(total),
+           popM_diff = popM - lead(popM)) %>%
+    ungroup() %>%
+    filter(day_before) %>%
+    mutate(total_diff = pmax(as.vector(scale(total_diff, center = FALSE)), 0),
+           popM_diff = pmax(as.vector(scale(popM_diff, center = FALSE)), 0)) %>%
+    mutate(severity = total_diff + popM_diff) %>%
+    arrange(desc(unlist(severity))) %>%
+    select(location, severity)
 }
 
 # severity can be one of "none", "simple" or "forecast"

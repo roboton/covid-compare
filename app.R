@@ -10,29 +10,29 @@ min_global <- 1
 refresh_interval <- hours(6)
 
 # pull in data
-# jhu <- fetchPrepJhuData()
-# covtrack <- fetchPrepCovTrackData()
-# nyt <- fetchPrepNyt()
-# cds <- fetchPrepCorDataScrape()
-# 
-# all_locs <- jhu %>%
-#   rename(location = country) %>%
-#   mutate(location = paste(location, "[jhu]")) %>%
-#   bind_rows(
-#     covtrack %>%
-#       rename(location = state) %>%
-#       mutate(location = paste(location, "[ctp]")),
-#     nyt %>%
-#       rename(location = county) %>%
-#       mutate(location = paste(location, "[nyt]")),
-#     cds %>%
-#       mutate(location = paste(location, "[cds]"))
-#   ) %>%
-#   group_by(location) %>%
-#   filter(any(stat == "deaths" & (!is.nan(popM) & popM >= min_global))) %>%
-#   ungroup()
+jhu <- fetchPrepJhuData()
+covtrack <- fetchPrepCovTrackData()
+nyt <- fetchPrepNyt()
+cds <- fetchPrepCorDataScrape()
 
-all_locs <- fetchPrepCorDataScrape()
+all_locs <- jhu %>%
+  rename(location = country) %>%
+  mutate(location = paste(location, "[jhu]")) %>%
+  bind_rows(
+    covtrack %>%
+      rename(location = state) %>%
+      mutate(location = paste(location, "[ctp]")),
+    nyt %>%
+      rename(location = county) %>%
+      mutate(location = paste(location, "[nyt]")),
+    cds %>%
+      mutate(location = paste(location, "[cds]"))
+  ) %>%
+  group_by(location) %>%
+  filter(any(stat == "deaths" & (!is.nan(popM) & popM >= min_global))) %>%
+  ungroup()
+
+#all_locs <- fetchPrepCorDataScrape()
 
 # location_severity <- getLocationSeverity(all_locs)
 # loc_list <- location_severity %>% pull(location) %>% unique()
@@ -54,8 +54,7 @@ all_locs <- fetchPrepCorDataScrape()
 #                        "Lombardy, Italy",
 #                        "New York City, New York, United States")
 loc_list <- getLocationList(all_locs, severity = "simple")
-# default_locations <- c(default_locations, sample(loc_list$location, size = 3,
-#                                                  prob = loc_list$severity))
+n_locs <- 10
 
 last_update <- now(tzone = "GMT")
 
@@ -69,7 +68,6 @@ ui <- function(request) {
     bookmarkButton()
   )
 }
-
 ui <- function(request) {
   fluidPage(
     tags$head(includeHTML(("www/google-analytics.html"))),
@@ -91,8 +89,8 @@ ui <- function(request) {
         # data options
         selectizeInput(
           "location", "Location",
-          choices = loc_list,
-          selected = sample(loc_list$location, size = 3,
+          choices = loc_list$location,
+          selected = sample(loc_list$location, size = n_locs,
                             prob = loc_list$severity),
           options = list(
             placeholder = 'type to select a location'),
