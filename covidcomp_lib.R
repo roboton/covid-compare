@@ -133,10 +133,10 @@ getSimpleSeverity <- function(all_locs) {
            total_diff = total - lead(total),
            popM_diff = popM - lead(popM)) %>%
     ungroup() %>%
-    filter(day_before) %>%
+    filter(day_before | is.na(day_before)) %>%
     mutate(total_diff = pmax(as.vector(scale(total_diff, center = FALSE)), 0),
            popM_diff = pmax(as.vector(scale(popM_diff, center = FALSE)), 0)) %>%
-    mutate(severity = total_diff + popM_diff) %>%
+    mutate(severity = replace_na(total_diff + popM_diff, 0)) %>%
     arrange(desc(unlist(severity))) %>%
     select(location, severity)
 }
