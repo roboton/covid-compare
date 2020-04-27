@@ -138,7 +138,7 @@ getSimpleSeverity <- function(all_locs) {
            popM_diff = pmax(as.vector(scale(popM_diff, center = FALSE)), 0)) %>%
     mutate(severity = replace_na(total_diff + popM_diff, 0)) %>%
     arrange(desc(unlist(severity))) %>%
-    select(location, severity)
+    select(location, total_diff, popM_diff, severity)
 }
 
 # severity can be one of "none", "simple" or "forecast"
