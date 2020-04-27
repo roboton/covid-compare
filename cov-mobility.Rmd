@@ -1,0 +1,647 @@
+---
+title: "Mobility data"
+output: html_notebook
+---
+
+This notebook explores, validates, and extracts key parameters from public mobility available from Google, Apple, and Descartes Labs.
+
+```{r, setup}
+library(EnvCpt) # for change point detection
+library(tidyverse)
+library(lubridate)
+```
+
+# Reading sources
+
+```{r}
+google_mob <- read_csv(
+  "https://www.gstatic.com/covid19/mobility/Global_Mobility_Report.csv",
+  # col_types b/c read_csv detects logical in missing values in first 1000 rows.
+  col_types = "ccccDnnnnnn")
+apple_mob <- read_csv(
+  "https://covid19-static.cdn-apple.com/covid19-mobility-data/2006HotfixDev11/v1/en-us/applemobilitytrends-2020-04-20.csv")
+descartes_mob <- read_csv(
+  "https://raw.githubusercontent.com/descarteslabs/DL-COVID-19/master/DL-us-mobility-daterow.csv")
+```
+
+From the descriptions on their respective websites, the Google mobility data measures "
+
+## Data summaries
+
+```{r}
+lapply(list(google_mob, apple_mob, descartes_mob), FUN = function(df) {
+  df %>% mutate_if(is.character, as.factor) %>% summary()
+})
+```
+
+There is some substantial differences in these data sets in their structure, but also on their content. We first tidy up the structure, then we dive into each set of metrics.
+
+## Tidy structure
+
+Google:
+
+```{r}
+(google_mob <- google_mob %>%
+  gather(location_type, pct_change, contains("percent_change")) %>%
+  mutate(location_type = str_remove(location_type,
+                                    "_percent_change_from_baseline")))
+```
+
+Apple:
+
+```{r}
+(apple_mob <- apple_mob %>%
+   gather(date, routing_requests, -geo_type, -region, -transportation_type))
+```
+
+The Descartes data is already tidy.
+
+## Google
+
+[Google mobility](https://www.google.com/covid19/mobility/data_documentation.html) measures "the percent change in visits to places like grocery stores and parks within a geographic area". This is split out into six location types (retail/recreation, grocery/pharmacy, parks, transit stations, workplaces, and residential) and measure changes from a baseline date of Feb 15, 2020.
+
+It would be interesting know how visits are counted. Do I need to leave a place to visit that place again? Does staying at home all day mean I visited home just once? These details are not revealed from the [summary](https://www.google.com/covid19/mobility/data_documentation.html).
+
+### Top/Bottom 5 countries by cumulative change
+
+The mobility documentation also states: "Location accuracy and the understanding of categorized places varies from region to region, so we don’t recommend using this data to compare changes between countries, or between regions with different characteristics (e.g. rural versus urban areas)." Which makes me wonder, how _do_ we use this? I think the main objective is to know how things are changing within a specific jurisdiction over time.
+
+In an act of rebellion, we try this anyway:
+```{r fig.height=12, fig.width=9}
+google_mob %>%
+  filter(is.na(sub_region_1) & is.na(sub_region_2)) %>%
+  group_by(country_region, location_type) %>%
+  mutate(sum_pct_change = sum(abs(pct_change))) %>%
+  group_by(location_type) %>% 
+  mutate(change_rank_top = dense_rank(sum_pct_change)) %>%
+  mutate(change_rank_bot = dense_rank(-sum_pct_change)) %>%
+  group_by(country_region) %>%
+  filter(any(change_rank_top %in% 1:5 | change_rank_bot %in% 1:5)) %>%
+  ggplot(aes(date, pct_change, color = country_region)) +
+  facet_wrap(~ location_type, ncol = 2) +
+  geom_line() -> p
+
+plotly::ggplotly(p)
+```
+
+This measure effectively measures areas under curves to understand how much variation we see from baseline.  It seems the countries that have changed the least are Benin, Japan, Taiwan, Tanzania, and Yemen.  Those that changed the most are Bolivia, Ecuador, Italy, Mauritius, and Spain.  In general there is a consistent decline in all categories except parks and residential.  That would more or less align with what we would expect from a stay-at-home order with some outdoor exceptions.. Denmark really loves their parks.
+
+
+### Location aggregates
+
+```{r}
+google_mob %>% group_by(country_region) %>%
+  summarise(distinct_sr1 = n_distinct(sub_region_1, na.rm = T),
+            distinct_sr2 = n_distinct(sub_region_2, na.rm = T)) %>%
+  arrange(desc(distinct_sr2), desc(distinct_sr1))
+```
+
+The Google mobility data contains two sub-regions for the US (states and counties) and one sub-region for 49 other countries.  The remaining 82 countries do not have any sub-regional information.
+
+## Apple
+
+Apple [defines](https://www.apple.com/covid19/mobility) their measure as "a relative volume of directions requests per country/region or city compared to a baseline volume on January 13th, 2020". So this starts earlier than the Google data and cuts their data by transportation type (driving, walking, or transit).  Perhaps the transit direction requests could be comparable to Google's.
+
+Additionally they define their days as midnight to midnight, Pacific time and point out that there is substantial day of week variation in these requests on a regular basis.
+
+### Top/Bottom 5 countries by cumulative change
+
+We try to replicate the same graph:
+
+```{r fig.height=9}
+apple_mob %>%
+  mutate(date = ymd(date)) %>%
+  filter(geo_type == "country/region") %>%
+  group_by(region) %>%
+  mutate(routing_requests = routing_requests - 100,
+         sum_routing_requests = sum(abs(routing_requests))) %>%
+  group_by(transportation_type) %>% 
+  mutate(change_rank_top = dense_rank(sum_routing_requests)) %>%
+  mutate(change_rank_bot = dense_rank(-sum_routing_requests)) %>%
+  group_by(region) %>%
+  filter(any(change_rank_top %in% 1:5 | change_rank_bot %in% 1:5)) %>%
+  ggplot(aes(date, routing_requests, color = region)) +
+  geom_line() + facet_wrap(~ transportation_type, scales = "free", ncol = 1) -> p
+
+plotly::ggplotly(p)
+```
+
+We see stronger compliance in transit and walking modes with less variation in driving. This appears consistent with a social distancing order keeping people away from being in physical contact with others.
+
+### Location aggregates
+
+```{r}
+apple_mob %>%
+  group_by(geo_type) %>%
+  summarise_at(vars(region), n_distinct)
+```
+
+Apple mobility data consists of 63 countries and 89 cities around the world.
+
+## Descartes
+
+Descartes Labs defines their measure of mobilty as the median of max-distance mobility. The max-distance mobility is the maximum haversine distance (km) from the initial location report of the day.  Furthermore, a normalized measure of this metric is computed by dividing it by a historical (not clearly defined) value in the region. More information can be found in their [technical paper](https://www.descarteslabs.com/wp-content/uploads/2020/03/mobility-v097.pdf). Time series data begins from March 1st.
+
+### Top/Bottom 5 states by cumulative change
+
+```{r}
+descartes_mob %>%
+  filter(is.na(admin2)) %>%
+  group_by(admin1) %>%
+  mutate(m50_index = m50_index - 100,
+         sum_m50_index = sum(abs(m50_index))) %>%
+  ungroup() %>%
+  mutate(change_rank_top = dense_rank(sum_m50_index)) %>%
+  mutate(change_rank_bot = dense_rank(-sum_m50_index)) %>%
+  group_by(admin1) %>%
+  filter(any(change_rank_top %in% 1:5 | change_rank_bot %in% 1:5)) %>%
+  ggplot(aes(date, m50_index, color = admin1)) +
+  geom_line() -> p
+
+plotly::ggplotly(p)
+```
+
+There's quite a bit of red-state/blue-state disparity in these changes from baseline.
+
+### Location aggregates
+
+```{r}
+descartes_mob %>%
+  select(country_code, admin1, admin2) %>% unique()
+```
+
+It looks like we only have US data in the Descartes mobility data - along with state and county breakdowns.
+
+# Putting it together
+
+Tidying up into: (a) date, (b) geo_type, (c) geo_name, (d) metric_type, (e) value, and (f) source
+
+```{r}
+all_mob <- bind_rows(
+    # Apple Mobility
+    apple_mob %>%
+      mutate(source = "apple", metric = "routing_requests",
+             date = ymd(date)) %>%
+      unite(metric, transportation_type, metric) %>%
+      rename(value = routing_requests, geo_name = region) %>%
+      mutate(geo_name = case_when(
+        geo_name == "Baltimore" ~ "Baltimore, Maryland",
+        geo_name == "Czech Republic" ~ "Czechia",
+        geo_name == "Republic of Korea" ~ "South Korea",
+        geo_name == "UK" ~ "United Kingdom",
+        geo_name == "Washington DC" ~ "District of Columbia",
+        TRUE ~ geo_name
+      )) %>%
+      mutate(value = value - 100),
+    # Google Mobility
+    google_mob %>%
+      mutate(source = "google") %>%
+      mutate(sub_region_2 = if_else(!is.na(sub_region_2),
+                                    paste(sub_region_2, sub_region_1,
+                                          sep = ", "),
+                                    sub_region_2)) %>%
+      mutate(
+        country_region = if_else(
+          !is.na(sub_region_1) | !is.na(sub_region_2), NA_character_,
+          country_region),
+        sub_region_1 = if_else(
+          !is.na(sub_region_2), NA_character_, sub_region_1)) %>%
+      pivot_longer(c(country_region, sub_region_1, sub_region_2),
+                   names_to = "geo_type",
+                   values_to = "geo_name", values_drop_na = TRUE) %>%
+      rename(value = pct_change, metric = location_type) %>%
+      select(-country_region_code) %>%
+      filter(!is.na(geo_name)),
+    # Descartes Mobility
+    descartes_mob %>%
+      mutate(source = "descartes") %>%
+      mutate(m50_index = m50_index - 100) %>%
+      mutate(admin2 = if_else(!is.na(admin2), paste(admin2, admin1, sep = ", "),
+                              admin2)) %>%
+      pivot_longer(c(admin1, admin2),
+                   names_to = "geo_type",
+                   values_to = "geo_name", values_drop_na = TRUE) %>%
+      pivot_longer(c(m50, m50_index),
+                   names_to = "metric", values_to = "value") %>%
+      mutate(geo_name = str_replace(geo_name, "^City of ", "")) %>%
+      mutate(geo_name = str_replace(geo_name, "^Sainte ", "Ste. ")) %>%
+      mutate(geo_name = str_replace(geo_name, "^Saint ", "St. ")) %>%
+      mutate(geo_name = str_replace(geo_name, " Municipality$", "")) %>%
+      mutate(geo_name = str_replace(geo_name, " City and Borough$", "")) %>%
+      mutate(geo_name = str_replace(geo_name, " Borough$", "")) %>%
+      mutate(geo_name = case_when(
+        geo_name == "Bronx" ~ "Bronx County",
+        geo_name == "Kenai Peninsula" ~ "Kenai Peninsula Borough",
+        geo_name == "Dona Ana County" ~ "Doña Ana County",
+        geo_name == "Washington, D.C." ~ "District of Columbia",
+        TRUE ~ geo_name)) %>%
+      select(-country_code, -admin_level, -fips, -samples)) %>%
+  # normalize geo_type's
+  mutate(geo_type = case_when(
+    geo_type %in% c("country/region", "country_region") ~ "country",
+    geo_type %in% c("sub_region_1", "admin1") ~ "state_province",
+    geo_type %in% c("sub_region_2", "admin2", "city") ~ "county_city",
+    TRUE ~ "new_geo_type")) %>%
+  mutate(geo_type = if_else(geo_name == "District of Columbia", "county_city",
+                            geo_type))
+```
+
+## Geo overlap
+
+```{r}
+all_mob %>%
+  group_by(geo_type, geo_name) %>%
+  summarise(n_sources = n_distinct(source),
+             sources = str_flatten(unique(source), collapse = ",")) %>%
+  arrange(desc(n_sources), geo_type, geo_name) %>% DT::datatable()
+```
+
+```{r}
+all_mob %>%
+  group_by(geo_type, geo_name) %>%
+  summarise(n_sources = n_distinct(source),
+             sources = str_flatten(unique(source), collapse = ",")) %>%
+  arrange(desc(n_sources), geo_type, geo_name) %>% DT::datatable()
+```
+
+## Google/Apple/Descartes
+
+These sources overlap in only two places, Baltimore and Washington DC.
+
+```{r}
+all_mob %>%
+  group_by(geo_type, geo_name) %>%
+  mutate(n_sources = n_distinct(source),
+         sources = str_flatten(unique(source), collapse = ","),
+         week = floor_date(date, "week")) %>%
+  filter(n_sources == 3 & !metric %in% c("m50")) %>%
+  group_by(week, geo_name, metric) %>%
+  summarise(value = mean(value)) %>%
+  mutate(metric = str_remove(metric, "_pct_change_from_baseline")) %>%
+  ggplot(aes(week, value, color = metric)) +
+  theme(legend.position = "bottom") +
+  facet_wrap(~ geo_name, ncol = 1) +
+  geom_line() -> p
+plotly::ggplotly(p)
+```
+
+## Google/Apple
+
+Apple/Google overlap happens at the country level.  Furthermore, we should expect that Google's transit station visits aligns well with Apple's transit direction requests.
+
+```{r fig.height=12, fig.width=8}
+all_mob %>%
+  group_by(geo_type, geo_name) %>%
+  mutate(n_sources = n_distinct(source),
+         sources = str_flatten(unique(source), collapse = ","),
+         week = floor_date(date, "week")) %>%
+  filter(n_sources == 2 & sources == "apple,google") %>%
+  unite(metric, source, metric) %>%
+  group_by(week, geo_name, metric) %>%
+  summarise(value = mean(value)) %>%
+  ggplot(aes(week, value, color = geo_name)) +
+  facet_wrap(~ metric, ncol = 2) +
+  geom_line() -> p
+plotly::ggplotly(p)
+```
+
+### Transit correlations
+
+```{r fig.height=18}
+all_mob %>%
+  filter(metric %in% c("transit_routing_requests",
+                       "transit_stations")) %>%
+  group_by(geo_name, date) %>%
+  filter(any(source == "apple") & any(source == "google")) %>%
+  arrange(geo_type, geo_name, date) %>%
+  ggplot(aes(date, value, color = source)) +
+  geom_line() + facet_wrap(~ geo_name, ncol = 5)
+  
+```
+
+```{r}
+all_mob %>%
+  filter(metric %in% c("transit_routing_requests",
+                       "transit_stations")) %>%
+  group_by(geo_name, date) %>%
+  filter(any(source == "apple") & any(source == "google")) %>%
+  ungroup() %>%
+  select(-geo_type, -metric) %>%
+  spread(source, value) %>%
+  group_by(geo_name) %>%
+  mutate_at(vars(apple, google), scale) %>%
+  summarise(correlation = cor(apple, google)) %>%
+  arrange(correlation) %>%
+  ggplot(aes(correlation)) + geom_density()
+```
+
+Looks like correlations do better in Western countries vs Eastern countries but generally high correlations everywhere except for Taiwan and Japan.
+
+## Google/Descartes
+
+There are a lot of counties so we randomly sample 20 for display.
+
+```{r fig.height=12, fig.width=8}
+all_mob %>%
+  group_by(geo_type, geo_name) %>%
+  filter(n_distinct(source) == 2 &
+           all(source == "google" | source == "descartes")) %>%
+  unite(metric, source, metric) %>%
+  group_by(week = floor_date(date, "week"), geo_name, metric) %>%
+  summarise(value = mean(value)) %>%
+  group_by(geo_name) %>% nest() %>% ungroup() %>%
+  sample_n(20) %>% unnest(cols = c(data)) %>%
+  ggplot(aes(week, value, color = metric)) +
+  facet_wrap(~ geo_name, ncol = 2) +
+  geom_line() -> p
+plotly::ggplotly(p)
+```
+
+We note that m50 is actually a positive value in kilometers so doesn't have the same "percent change from baseline" that is common in the other metrics.
+
+### Residential correlations
+
+Similar to the transit information between Google/Apple - we look for some correlations between Descartes/Google residential vs non-residential movement.
+
+```{r}
+all_mob %>%
+  filter(source %in% c("google", "descartes")) %>%
+  filter(geo_type == "county_city" & metric != "m50") %>%
+  mutate(metric = if_else(metric %in% c("residential", "m50_index", "m50"),
+                          metric, "m50_index_goog")) %>%
+  group_by(geo_type, geo_name, metric, date, source) %>%
+  summarise(value = mean(value, na.rm = TRUE)) %>%
+  #mutate(value = if_else(metric == "residential", value * -1, value)) %>%
+  group_by(metric, date) %>%
+  summarise_at(vars(value), mean, na.rm=TRUE) %>%
+  ggplot(aes(date, value, color = metric)) + geom_line()
+```
+
+```{r}
+all_mob %>%
+  filter(source %in% c("google", "descartes")) %>%
+  filter(geo_type == "county_city" & metric != "m50") %>%
+  mutate(metric = if_else(metric %in% c("residential", "m50_index", "m50"),
+                          metric, "m50_index_goog")) %>%
+  group_by(geo_type, geo_name, metric, date, source) %>%
+  summarise(value = mean(value, na.rm = TRUE)) %>% ungroup() %>%
+  select(geo_name, metric, date, value) %>%
+  spread(metric, value) %>%
+  group_by(geo_name) %>%
+  filter(any(!is.na(m50_index) & any(!is.na(m50_index_goog)))) %>%
+  group_by(geo_name) %>%
+  summarise(correlation_m50 = cor(m50_index, m50_index_goog,
+                                  use = "pairwise.complete.obs"),
+            correlation_res = cor(m50_index, residential,
+                                  use = "pairwise.complete.obs")) %>%
+  gather(correlation_type, correlation, starts_with("correlation_")) %>%
+  arrange(-correlation) %>%
+  ggplot(aes(correlation, fill = correlation_type)) +
+  geom_density(alpha = 0.1)
+```
+
+This is all reassuring, Google residential activity is negatively correlated with the `m50_index` from Descartes. The average of all non-residential activities from Google is positively correlated to the `m50_index`. The residential negative correlation does appear stronger over these different regions than non-residential Google mobility data.
+
+# Missing data
+
+```{r}
+all_mob %>%
+  group_by(geo_type, metric, source) %>%
+  summarise(na_pct = mean(is.na(value))) %>%
+  arrange(desc(na_pct))
+```
+
+Google is missing a fair bit of data in its stats about parks, transit_stations, and residential - especially at the county level. It's a little strange that there is missing data at the state level and the order of missingness is reversed from the county level. There is this general issue where data is censored when there are very few people in a location or location category - so maybe the missingness is information in itself - like a lower bound on the amount of activity in a given place. This missingness is likely to cause some problems so we should come up with a way to deal with it.
+
+### Fixing the missing
+
+We create `all_mob_fix` which adds another column, `value_type` that helps us distinguish between values interpolated by `na.approx` and original values.  There are many spotty values, especially at the county level, in the Google data so this is necessary to do anything useful withi t.
+
+```{r}
+(all_mob_fix <- all_mob %>%
+   # fill in missing values
+   group_by(metric, geo_type, geo_name, source) %>%
+   mutate(value_approx = na.approx(value, na.rm = FALSE)) %>%
+   gather(value_type, value, value, value_approx) %>%
+   ungroup() %>% 
+   # aggregate google mobility metrics
+   mutate(value = if_else(metric == "residential", value * -1, value)) %>%
+   mutate(metric = if_else(source == "google", "google_mob", metric)) %>%
+   mutate(metric = if_else(source == "apple", "apple_mob", metric)) %>%
+   filter(metric != "m50") %>%
+   mutate(metric = if_else(source == "descartes", "descartes_mob", metric)) %>%
+   group_by(metric, geo_type, geo_name, source, value_type, date) %>%
+   summarise(value = mean(value, na.rm = TRUE)) %>%
+   ungroup()) #%>%
+  # group_by(metric, geo_type, geo_name, source) %>% pull(pct_value) %>% hist()
+  # filter(any(between(pct_value, 0.96, 0.97))) %>% 
+  # filter(rbinom(1, 1, 0.1) == 1) %>%
+  # ggplot(aes(date, value)) +
+  # facet_grid(geo_name ~ value_type) +
+  # geom_line()
+```
+
+
+# Mobility parameters
+
+## Change point detection
+
+```{r message=FALSE, warning=FALSE}
+help_envcpt <- function(df) {
+  if (sum(!is.na(df$value)) < 14) {
+    return(NA) 
+  } else {
+    return(list(envcpt(na.approx(df$value), verbose = FALSE)))
+  }
+}
+
+mob_cpt_file <- "all_mob_cpt.rds"
+
+if (!file.exists(mob_cpt_file)) {
+ all_mob_cpt <- all_mob_fix %>%
+   filter(value_type == "value_approx") %>%
+   group_by(geo_type, geo_name, source, metric) %>%
+   nest() %>% rowwise() %>%
+   mutate(cpt_mdl = help_envcpt(data)) 
+ saveRDS(all_mob_cpt, mob_cpt_file)
+} else {
+  all_mob_cpt <- readRDS(mob_cpt_file)
+}
+```
+
+```{r}
+all_mob_cpt %>% rowwise() %>%
+  mutate(has_mdl = all(!is.na(cpt_mdl))) %>%
+  group_by(geo_type, metric) %>%
+  summarise(has_mdl = mean(has_mdl)) %>%
+  arrange(has_mdl)
+```
+
+Most models were able to run.
+
+## Extract mobility parameters
+
+```{r}
+extract_mob_parameters <- function(cpt_data, cpt_mdl, mdl_name = "meancpt") {
+  if (any(is.na(cpt_mdl))) {
+    return(NA)
+  }
+  cpt_mdl <- cpt_mdl[[mdl_name]]
+  dates <- cpt_data %>% pull(date)
+  values <- cpt_data %>% pull(value)
+  
+  means <- cpt_mdl@param.est$mean
+  vars <- cpt_mdl@param.est$variance
+  
+  end_pts <- cpt_mdl@cpts
+  seg_lens <- seg.len(cpt_mdl)
+  start_pts <- (end_pts - seg_lens) + 1
+  
+  eq_idx <- head(order(seg_lens, decreasing = T), 2)
+  min_idx <- which.min(means)
+  max_idx <- which.max(means)
+  first_idx <- min(min_idx, max_idx)
+  last_idx <- max(min_idx, max_idx)
+  
+  # important vals
+  change_start <- end_pts[first_idx]
+  change_end <- start_pts[last_idx]
+  
+  # save vals
+  change_start_date <- dates[change_start]
+  change_end_date <- dates[change_end]
+  
+  mean_before <- means[first_idx]
+  mean_after <- means[last_idx]
+  var_before <- vars[first_idx]
+  var_after <- vars[last_idx]
+  change_diff <- mean_after - mean_before
+  change_slope <- change_diff / (last_idx - first_idx)
+  start_seg <- c(start_pts[first_idx], end_pts[first_idx])
+  start_seg_dates <- dates[start_seg]
+  end_seg <- c(start_pts[last_idx], end_pts[last_idx])
+  end_seg_dates <- dates[end_seg]
+  revert <- last(means) - mean_after
+  
+  data.frame(
+    change_start_date = change_start_date,
+    change_diff = change_diff,
+    change_slope = change_slope,
+    change_end_date = change_end_date,
+    change_days = change_end_date - change_start_date,
+    mean_before = mean_before,
+    mean_after= mean_after,
+    var_before = var_before,
+    var_after= var_after,
+    seg_start_date = dates[start_pts[first_idx]],
+    seg_end_date = dates[end_pts[last_idx]],
+    revert = revert)
+}
+
+all_mob_params <- all_mob_cpt %>%
+  rowwise() %>%
+  mutate(
+    cpt_params = list(extract_mob_parameters(data, cpt_mdl))) %>%
+  unnest(cpt_params) %>% ungroup()
+```
+
+```{r}
+plot_row <- function(x) {
+  x %>% pluck("cpt_mdl", 1) %>% .[["meancpt"]] %>% plot()
+}
+
+all_mob_params %>%
+  arrange(change_slope)
+```
+
+The first thing that pops out are Descartes numbers are wild (and likely very noisy).  We should probably ignore them.
+
+```{r}
+all_mob_params %>%
+  filter(source != "descartes") %>%
+  arrange(change_slope)
+```
+
+Apple and Google change from baseline metrics look reasonable.  We'll use Google for a region level analysis and Apple and Google for country level changes.
+
+```{r}
+all_mob_params %>%
+  filter(geo_type == "country") %>%
+  select(source, geo_name, change_start_date) %>%
+  spread(source, change_start_date) %>%
+  ggplot(aes(google, apple)) + geom_point() + geom_smooth(method = "lm")
+```
+
+```{r}
+all_mob_params %>%
+  filter(geo_type == "country") %>%
+  select(source, geo_name, change_start_date) %>%
+  spread(source, change_start_date) %>%
+  mutate(diff = abs(google - apple)) %>%
+  arrange(desc(diff))
+```
+
+```{r}
+all_mob_params %>%
+  filter(geo_name == "Hong Kong") %>% slice(1) %>% plot_row()
+
+all_mob_params %>%
+  filter(geo_name == "Hong Kong") %>% slice(2) %>% plot_row()
+```
+
+Google looks like they are not getting the correct shutdown dates for early implementesr because the time series only begins in March while Apple's start in April.  At least for the late implementers, the numbers seem to align reasonably well.  This tells us that using Google data for an international comparison may not be useful because countries didn't start until earlier. For countries like Italy, who started later (sadly), we are able to see the change points and it looks like we're able to pick up the start date correctly.
+
+```{r}
+all_mob_params %>%
+  filter(geo_name == "Italy") %>% slice(1) %>% plot_row()
+
+all_mob_params %>%
+  filter(geo_name == "Italy") %>% slice(2) %>% plot_row()
+```
+
+<!-- # Covid data -->
+
+<!-- ```{r} -->
+<!-- source("covidcomp_lib.R") -->
+<!-- jhu <- fetchPrepJhuData() -->
+<!-- covtrack <- fetchPrepCovTrackData() -->
+<!-- nyt <- fetchPrepNyt() -->
+<!-- cds <- fetchPrepCorDataScrape() -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- deaths <- bind_rows( -->
+<!--   jhu %>% -->
+<!--     rename(geo_name = country) %>% -->
+<!--     mutate(geo_type = "country"), -->
+<!--   covtrack %>% -->
+<!--     rename(geo_name = state) %>% -->
+<!--     mutate(geo_type = "state_province"), -->
+<!--   nyt %>% -->
+<!--     rename(geo_name = county) %>% -->
+<!--     mutate(geo_type = "county_city"), -->
+<!--   cds %>% -->
+<!--     rename(geo_name = location) %>% -->
+<!--     mutate(geo_type = "state_province")) %>% -->
+<!--   filter(stat == "deaths") %>% -->
+<!--   mutate(geo_name = case_when( -->
+<!--     geo_name == "Korea, South" ~ "South Korea", -->
+<!--     geo_name == "US" ~ "United States", -->
+<!--     geo_name == "Taiwan*" ~ "Taiwan", -->
+<!--     geo_name == "Myanmar (Burma)" ~ "Burma", -->
+<!--     geo_name == "New York City, New York" ~ "New York City", -->
+<!--     str_ends(geo_name, ", United States") ~ str_remove(geo_name, ", United States"), -->
+<!--     TRUE ~ geo_name)) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- all_mob_params %>% -->
+<!--   filter(source != "descartes" & source != "apple") %>% -->
+<!--   select(-cpt_mdl) %>% -->
+<!--   unnest(data) %>%  -->
+<!--   left_join(deaths, by = c("geo_name", "date"), -->
+<!--             suffix = c("", ".deaths")) %>% -->
+<!--   group_by(geo_name, geo_type) %>% -->
+<!--   filter(all(is.na(stat))) %>% -->
+<!--   select(geo_name, geo_type) %>% unique() -->
+<!-- ``` -->
