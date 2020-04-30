@@ -247,8 +247,8 @@ fetchPrepCdcFlu <- function(seasons = 2017:2019) {
     group_by(seasonid) %>% 
     mutate(year = year(min(date))) %>%
     ungroup() %>% select(-seasonid) %>%
-    #mutate(deaths = number_influenza) %>%
-    mutate(deaths = number_influenza + number_pneumonia) %>%
+    mutate(deaths = number_influenza) %>%
+    #mutate(deaths = number_influenza + number_pneumonia) %>%
     select(-starts_with("number_")) %>%
     left_join(
       flu_cases_data %>%
