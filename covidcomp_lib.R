@@ -268,7 +268,7 @@ fetchPrepCdcFlu <- function(seasons = 2017:2019) {
         select(popM = POPESTIMATE2019, state = NAME), by = "state") %>%
     mutate(popM = if_else(state == "New York City", 8623000, popM),
            popM = (total * 1e6) / popM) %>%
-    mutate(state = paste0(state, ", USA ", year, " pneu/flu")) %>%
+    mutate(state = paste0(state, ", USA ", year, " flu")) %>%
     select(-year)
 }
 
