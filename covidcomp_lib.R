@@ -409,7 +409,9 @@ compLabeller <- function(labels) {
 plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
                       max_days_since = 20, min_days_since = 3,
                       smooth_plots = TRUE, scale_to_fit = TRUE,
-                      per_million = TRUE, span = 1, double_days = FALSE) {
+                      per_million = TRUE, span = 1, double_days = FALSE,
+                      show_daily = FALSE) {
+  total_or_daily = if (show_daily) "daily" else "total"
   df %>%
     { if (!double_days) filter(., value_type != "double_days") else . } %>%
     # lazy filter for erroneous data
@@ -419,13 +421,18 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
     # filter not enough points
     group_by(location, stat, value_type) %>%
     filter( n() >= min_days_since) %>%
+    { if (show_daily) mutate(., value = if_else(value_type != "double_days" &
+                                                  !str_ends(value_type, "r"),
+                                                value - lag(value),
+                                                value)) else . } %>%
     ungroup() %>%
     # order plots and readable labels
     mutate(
       value_type = factor(value_type,
                           levels = c("total", "popM", "double_days"),
-                          labels = c("Total count",
-                                     "Total count per million people",
+                          labels = c(paste(total_or_daily, "count"),
+                                     paste(total_or_daily,
+                                           "count per million people"),
                                      "Days to double total count")),
       stat = factor(stat, levels = c("deaths", "confirmed",
                                      "active", "recovered",
@@ -498,7 +505,7 @@ genPlotComps <- function(
   df, min_stat = "deaths", geo_level = "country", min_thresh = 1,
   max_days_since = 45, min_days_since = 3, smooth_plots = TRUE,
   scale_to_fit = TRUE, per_million = TRUE, refresh_interval = hours(6),
-  double_days = TRUE) {
+  double_days = TRUE, show_daily = FALSE) {
   
   # refresh data after refresh_interval 
   data_age <- as.period(now() - last_update)
@@ -517,7 +524,8 @@ genPlotComps <- function(
       min_thresh = min_thresh, max_days_since = max_days_since,
       smooth_plots = smooth_plots, min_stat = min_stat,
       scale_to_fit = scale_to_fit, per_million = per_million,
-      min_days_since = min_days_since, double_days = double_days) %>%
+      min_days_since = min_days_since, double_days = double_days,
+      show_daily = show_daily) %>%
     cleanPlotly(smooth_plots = smooth_plots)
 }
 

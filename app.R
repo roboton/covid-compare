@@ -113,6 +113,8 @@ ui <- function(request) {
                       "Scale to fit", value = TRUE),
         checkboxInput("double_days",
                       "Show double days", value = TRUE),
+        checkboxInput("show_daily",
+                      "Show daily", value = FALSE),
         h3("Why another dashboard?"),
         p("Facts are useful, but in times like these they can also be overwhelming. It can be helpful to organize these facts so they can provide perspective and focus our attention to the right places."),
         p("The measures presented here aim to improve on existing measures of Covid-19 severity in three key ways:"),
@@ -198,7 +200,8 @@ ui <- function(request) {
                      smooth_plots = input$smooth_plots,
                      scale_to_fit = input$scale_to_fit,
                      refresh_interval = refresh_interval,
-                     double_days = input$double_days)
+                     double_days = input$double_days,
+                     show_daily = input$show_daily)
       })
     output$severityTable <- DT::renderDataTable({
       loc_list
