@@ -105,7 +105,7 @@ ui <- function(request) {
                       "Counts per million people", value = TRUE),
         numericInput("max_days_since",
                      "days since initial number of deaths/cases:",
-                     min = 0, value = 45),
+                     min = 0, value = 120),
         # plot options
         checkboxInput("smooth_plots",
                       "Smooth plot values", value = TRUE), 
