@@ -15,24 +15,25 @@ covtrack <- fetchPrepCovTrackData()
 nyt <- fetchPrepNyt()
 cds <- fetchPrepCorDataScrape()
 
-all_locs <- jhu %>%
-  rename(location = country) %>%
-  mutate(location = paste(location, "[jhu]")) %>%
-  bind_rows(
-    covtrack %>%
-      rename(location = state) %>%
-      mutate(location = paste(location, "[ctp]")),
-    nyt %>%
-      rename(location = county) %>%
-      mutate(location = paste(location, "[nyt]")),
-    cds %>%
-      mutate(location = paste(location, "[cds]"))
-  ) %>%
+all_locs <-  bind_rows(
+  jhu %>%
+    rename(location = country) %>%
+    mutate(source = "jhu"),
+  covtrack %>%
+    rename(location = state) %>%
+    mutate(source = "ctp"),
+  nyt %>%
+    rename(location = county) %>%
+    mutate(source = "nyt"),
+  cds %>%
+    mutate(source = "cds")) %>%
+  # fetchJoinMobility() %>%
+  mutate(location = str_glue("{location} [{source}]")) %>%
+  select(-source) %>%
   group_by(location) %>%
   filter(any(stat == "deaths" & (!is.nan(popM) & popM >= min_global))) %>%
+  # filter(!is.na(change_period)) %>%
   ungroup()
-
-#all_locs <- fetchPrepCorDataScrape()
 
 # location_severity <- getLocationSeverity(all_locs)
 # loc_list <- location_severity %>% pull(location) %>% unique()

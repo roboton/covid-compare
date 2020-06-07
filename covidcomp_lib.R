@@ -191,7 +191,7 @@ fetchPrepJhuData <- function() {
 # states
 fetchPrepCovTrackData <- function(add_flu = TRUE) {
   # fetch
-  covid19us::get_states_daily() %>%
+  read_csv("https://covidtracking.com/api/v1/states/current.csv") %>%
     select(date, state, positive, negative, pending, hospitalized, death,
            total) %>%
     gather(stat, total, -date, -state) %>%
@@ -227,8 +227,9 @@ fetchPrepCovTrackData <- function(add_flu = TRUE) {
       stat == "death" ~ "deaths",
       TRUE ~ stat
     )) %>%
-    mutate(state = paste0(state, ", USA")) %>%
-    {if (add_flu) bind_rows(., fetchPrepCdcFlu()) else identity(.)}
+    mutate(state = paste0(state, ", USA"),
+           date = ymd(date)) %>%
+    { if (add_flu) bind_rows(., fetchPrepCdcFlu()) else identity(.) }
 }
 
 # flu states
@@ -282,12 +283,14 @@ fetchPrepCorDataScrape <- function() {
         location = x,
         # geo hierarchy
         aggregate = valueOrNA(cds_data[[x]]$aggregate),
+        level = valueOrNA(cds_data[[x]]$level),
         country = valueOrNA(cds_data[[x]]$country),
         state = valueOrNA(cds_data[[x]]$state),
         county = valueOrNA(cds_data[[x]]$county),
         city = valueOrNA(cds_data[[x]]$city),
         # values
         population = valueOrNA(cds_data[[x]]$population),
+        population_density = valueOrNA(cds_data[[x]]$populationDensity),
         # max vals
         max_deaths = getTsMax(cds_data[[x]], "deaths"),
         max_cases = getTsMax(cds_data[[x]], "cases"),
@@ -330,6 +333,14 @@ fetchPrepCorDataScrape <- function() {
       stat %in% c("deaths", "confirmed"), value / population * 1e6, value)) %>%
     group_by(location) %>%
     filter(any(!is.na(max_deaths))) %>% ungroup() %>%
+    mutate(
+      location = if_else(
+        str_ends(location, ", USA"),
+        str_replace(location, ", USA", ", United States"), location),
+      location = if_else(
+        level == "county",
+        paste(county, state, sep = ", "),
+        location)) %>%
     select(location, date, stat, total = value, popM)
 }
 
@@ -352,8 +363,13 @@ fetchPrepNyt <- function(min_deaths = 5) {
       TRUE ~ population)) %>%  
     mutate(popM = total / population * 1e6) %>%
     # fix county names
-    mutate(county = if_else(str_ends(county, "City"), county,
-                            paste(county, "County"))) %>%
+    mutate(county = case_when(
+      county %in% c("New York City", "Kansas City",
+                    "District of Columbia") ~ county,
+      county == "James City" ~ "James City County",
+      str_ends(county, " [Cc]ity") ~ str_remove(county, " [Cc]ity"),
+      state == "Louisiana" ~ paste(county, "Parish"),
+      TRUE ~ paste(county, "County"))) %>%
     unite(county, county, state, sep = ", ") %>%
     #mutate(county = paste0(county, ", USA")) %>%
     group_by(county) %>%
@@ -361,6 +377,29 @@ fetchPrepNyt <- function(min_deaths = 5) {
     ungroup() %>%
     filter(max_deaths >= min_deaths) %>%
     select(-fips, -population, -max_deaths)
+}
+
+# add mobility data
+fetchJoinMobility <- function(.data) {
+  read_csv("data/google_mob_cpt.csv", col_types="cccccDnnDnnnnnn") %>%
+    filter(value_type == "mobility_index_change_from_baseline") %>%
+    mutate(sub_region_2 = if_else(
+      sub_region_1 == "District of Columbia", sub_region_1, sub_region_2)) %>%
+    mutate(location = case_when(
+      # US Counties (nyt, cds)
+      country_region_code == "US" & !is.na(sub_region_2) ~
+        paste(sub_region_2, sub_region_1, sep = ", "),
+      # US States(ctp, cds)
+      !is.na(sub_region_1) & is.na(sub_region_2) ~
+        paste(sub_region_1, country_region, sep = ", "),
+      # Countries (jhu, cds)
+      TRUE ~ country_region)) %>%
+    select(location, change_diff, change_start_date, change_end_date) %>%
+    right_join(.data, by = "location") %>%
+    mutate(change_period = if_else(
+      date >= change_end_date, # & date <= change_end_date,
+      "[SIPO]", "[Pre-SIPO]")) %>%
+    return()
 }
 
 # plot comps function
@@ -409,7 +448,7 @@ compLabeller <- function(labels) {
 plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
                       max_days_since = 20, min_days_since = 3,
                       smooth_plots = TRUE, scale_to_fit = TRUE,
-                      per_million = TRUE, span = 1, double_days = FALSE,
+                      per_million = TRUE, span = 0.75, double_days = FALSE,
                       show_daily = FALSE) {
   total_or_daily = if (show_daily) "daily" else "total"
   df %>%
@@ -453,21 +492,18 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
     # plot begins
     ggplot(aes(days_since, value, color = location, label = date)) +
     scale_x_continuous() + 
+    geom_point(alpha = 0.2) + 
     # no smoothing
     {if (!smooth_plots) geom_line(alpha = 0.8)} +
     # smoothing
     {if (smooth_plots) geom_line(stat = "smooth", method = "loess", span = span,
                                  alpha = 0.8, formula = y ~ x)} +
-    {if (smooth_plots) geom_point(alpha = 0.2)} +
     # .multi_line false doesn't work with ggplotly
     facet_wrap(vars(stat, value_type), ncol = { if (double_days) 2 else 1 },
                scales = {if (scale_to_fit) "free_y" else "fixed"},
                #labeller = labeller(.multi_line = TRUE)) +
                labeller = compLabeller) +
     # labelling
-    # ggtitle(paste0("Metrics since ", min_stat,
-    #                {if (per_million) " per million people " else ""}, " >= ",
-    #                min_thresh)) +
     xlab(paste0("Days since ", min_stat,
                 {if (per_million) " per million people " else ""}, " >= ",
                 min_thresh)) +
