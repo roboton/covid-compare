@@ -1,4 +1,5 @@
 library(tidyverse)
+library(vroom)
 library(lubridate)
 library(dtplyr)
 library(plotly)
@@ -145,10 +146,46 @@ getSimpleSeverity <- function(all_locs) {
 getLocationList <- function(all_locs, severity = "none")  {
   if (severity == "simple") {
     return(getSimpleSeverity(all_locs))
-  } else if (severity == "forecst") {
+  } else if (severity == "forecast") {
     return(getForecastSeverity(all_locs))
   }
   return(all_locs %>% select(location) %>% unique() %>% mutate(severity = 1))
+}
+
+fetchPrepGoogData <- function() {
+  vroom(
+    "https://storage.googleapis.com/covid19-open-data/v2/main.csv",
+    col_select = c(date, key, confirmed = total_confirmed,
+                   hospitalized = total_hospitalized,
+                   icu = total_intensive_care,
+                   deaths = total_deceased, total_tests = total_tested,
+                   population, locality_name, subregion2_name,
+                   subregion1_name, country_name),
+    col_types = c(key = "c", total_confirmed = "n", total_deceased = "n",
+                  total_tested = "n", total_hospitalized = "n",
+                  population = "n", total_intensive_care = "n", date = "D",
+                  locality_name = "c", subregion2_name = "c",
+                  subregion1_name = "c", country_name = "c"),
+    # col_types = c(locality_code = "c", locality_name = "c",
+    #               new_intensive_care = "n", total_intensive_care = "n",
+    #               current_intensive_care = "n", new_ventilator = "n",
+    #               total_ventilator = "n", current_ventilator = "n"),
+    num_threads = 16
+    ) %>%
+    unite(name, ends_with("_name"), sep = ",", na.rm = TRUE) %>%
+    mutate(key = str_replace(key, "^.*_", "")) %>%
+    unite(location, name, key, sep = " - ") %>%
+    mutate(#negative_tests = total_tests - confirmed,
+           cfr = deaths / confirmed,
+           ptr = confirmed / total_tests) %>%
+    pivot_longer(c(-date, -location, -population),
+                 names_to = "stat", values_to = "total") %>%
+    mutate(popM = if_else(
+        !stat %in% c("cfr", "ptr"), total / population * 1e6, total)) %>%
+    filter(is.finite(total) & is.finite(popM) & !is.na(location)) %>%
+    select(-population) %>%
+    group_by(location) %>%
+    filter("deaths" %in% stat & "confirmed" %in% stat) %>% ungroup()
 }
 
 # countries
@@ -189,11 +226,12 @@ fetchPrepJhuData <- function() {
 }
 
 # states
-fetchPrepCovTrackData <- function(add_flu = TRUE) {
+fetchPrepCovTrackData <- function(add_flu = FALSE) {
   # fetch
-  read_csv("https://covidtracking.com/api/v1/states/current.csv") %>%
-    select(date, state, positive, negative, pending, hospitalized, death,
-           total) %>%
+  read_csv("https://covidtracking.com/api/v1/states/daily.csv") %>%
+    select(date, state, confirmed = positive, negative_tests = negative,
+           pending_tests = pending, hospitalized, deaths = death,
+           total_tests = total) %>%
     gather(stat, total, -date, -state) %>%
     mutate(total = as.numeric(total)) %>%
     rename(state_abb = state) %>%
@@ -214,19 +252,15 @@ fetchPrepCovTrackData <- function(add_flu = TRUE) {
     pivot_wider(names_from = stat, values_from = c(total, popM)) %>%
     # compute metrics
     mutate(
-      total_cfr = total_death / total_positive,
-      total_ptr = total_positive / (total_positive + total_negative),
+      total_cfr = total_deaths / total_confirmed,
+      total_ptr = total_confirmed / (total_confirmed + total_negative_tests),
       # don't pop normalize rates (cfr)
-      popM_cfr = total_death / total_positive,
-      popM_ptr = total_positive / (total_positive + total_negative) #,
+      popM_cfr = total_deaths / total_confirmed,
+      popM_ptr = total_confirmed / (total_confirmed +
+                                     total_negative_tests) #,
       ) %>%
     pivot_longer(c(-state, -date), names_to = c(".value", "stat"),
-                 names_sep = "_") %>%
-    mutate(stat = case_when(
-      stat == "positive" ~ "confirmed",
-      stat == "death" ~ "deaths",
-      TRUE ~ stat
-    )) %>%
+                 names_pattern = "^(total|popM)_(.*)$") %>%
     mutate(state = paste0(state, ", USA"),
            date = ymd(date)) %>%
     { if (add_flu) bind_rows(., fetchPrepCdcFlu()) else identity(.) }
@@ -260,7 +294,7 @@ fetchPrepCdcFlu <- function(seasons = 2017:2019) {
     mutate_at(vars(deaths, confirmed, total), coalesce, 0) %>%
     group_by(state, year) %>% arrange(date) %>%
     mutate(deaths = cumsum(deaths), confirmed = cumsum(confirmed),
-           total = cumsum(total)) %>%
+           total_tests = cumsum(total)) %>%
     ungroup() %>% 
     #mutate(cfr = deaths/confirmed, ptr = confirmed / total) %>%
     gather(stat, total, -state, -date, -year) %>%
@@ -325,12 +359,21 @@ fetchPrepCorDataScrape <- function() {
         return(valueOrNA(x$deaths)) })),
       confirmed = unlist(sapply(ts_values, FUN = function(x) {
         return(valueOrNA(x$cases)) })),
-      cfr = deaths / confirmed) %>%
+      total_tests = unlist(sapply(ts_values, FUN = function(x) {
+        return(valueOrNA(x$tested)) })),
+      hospitalized = unlist(sapply(ts_values, FUN = function(x) {
+        return(valueOrNA(x$hospitalized_current)) })),
+      icu = unlist(sapply(ts_values, FUN = function(x) {
+        return(valueOrNA(x$icu_current)) })),
+      cfr = deaths / confirmed,
+      ptr = confirmed / total_tests,
+      ) %>%
     select(-ts_values) %>%
-    gather(stat, value, deaths, confirmed, cfr) %>%
+    gather(stat, value, deaths, confirmed, total_tests, hospitalized, icu,
+           cfr, ptr) %>%
     # don't pop normalize rates (cfr)
     mutate(popM = if_else(
-      stat %in% c("deaths", "confirmed"), value / population * 1e6, value)) %>%
+      !stat %in% c("cfr", "ptr"), value / population * 1e6, value)) %>%
     group_by(location) %>%
     filter(any(!is.na(max_deaths))) %>% ungroup() %>%
     mutate(
@@ -405,8 +448,8 @@ fetchJoinMobility <- function(.data) {
 # plot comps function
 genCompData <- function(df, geo_level = NA, min_stat = "deaths",
                         min_thresh = NA, per_million = TRUE) {
-  stat_col <- {if (per_million) "popM" else "total"}
   
+  stat_col <- {if (per_million) "popM" else "total"}
   if (is.na(min_thresh)) {
     min_thresh <- {if (per_million) 1 else 10}
   } 
@@ -416,22 +459,29 @@ genCompData <- function(df, geo_level = NA, min_stat = "deaths",
     # get max_total and first_date per location/stat
     group_by(location, stat) %>%
     mutate(max_total = max(!!sym(stat_col), na.rm = TRUE),
-           first_date = suppressWarnings(
-             min(date[!!sym(stat_col) >= min_thresh], na.rm = TRUE))) %>%
+           first_date = ifelse(
+             stat == min_stat & any(!!sym(stat_col) >= min_thresh),
+             min(date[!!sym(stat_col) >= min_thresh]),
+             NA_Date_)) %>%
     group_by(location) %>%
+    mutate(first_date = first(na.omit(first_date))) %>%
     # drop earlier dates
-    filter(!is.na(first_date) & (date >= first_date[stat == min_stat])) %>%
+    filter(any(!is.na(first_date)) & min_stat %in% stat &
+             date >= first(first_date)) %>%
     # recenter dates
-    mutate(days_since = date - first_date[stat == min_stat]) %>%
+    mutate(days_since = date - first_date) %>%
     ungroup() %>%
     # calculate double_days
     group_by(location, stat) %>% arrange(date) %>%
     mutate(
       half_date = date[sapply(1:length(!!sym(stat_col)), FUN = function(i) {
-        suppressWarnings(
+        if(any((!!sym(stat_col))[1:i] <= (!!sym(stat_col))[i]/2)) {
           max(which((!!sym(stat_col))[1:i] <=
-                      (!!sym(stat_col))[i]/2), na.rm = TRUE))})],
-      double_days = date - half_date) %>%
+                      (!!sym(stat_col))[i]/2), na.rm = TRUE)
+        } else {
+          NA_Date_
+        }})],
+      double_days = as.numeric(date - half_date)) %>%
     ungroup() %>%
     gather(value_type, value, !!sym(stat_col), double_days)
 }
@@ -475,17 +525,17 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
                                      "Days to double total count")),
       stat = factor(stat, levels = c("deaths", "confirmed",
                                      "active", "recovered",
-                                     "positive", "total",
-                                     "negative", "pending",
-                                     "hospitalized",
+                                     "total_tests",
+                                     "negative_tests", "pending_tests",
+                                     "hospitalized", "icu",
                                      "cfr", "crr",
                                      "ptr", "hr",
                                      "dhr"),
                     labels = c("Deaths", "Confirmed cases",
                                "Active cases", "Recovered cases",
-                               "Positive tests", "Tests",
+                               "Tests",
                                "Negative tests", "Pending tests",
-                               "Hospitalized", 
+                               "Hospitalized", "Intensive Care",
                                "Case fatality rate", "Case recovery rate",
                                "Positive test rate", "Hospitalization rate",
                                "Death/Hosp. rate"))) %>%
@@ -538,7 +588,7 @@ cleanPlotly <- function(p, smooth_plots = TRUE) {
 }
 
 genPlotComps <- function(
-  df, min_stat = "deaths", geo_level = "country", min_thresh = 1,
+  df, min_stat = "deaths", geo_level = "location", min_thresh = 1,
   max_days_since = 45, min_days_since = 3, smooth_plots = TRUE,
   scale_to_fit = TRUE, per_million = TRUE, refresh_interval = hours(6),
   double_days = TRUE, show_daily = FALSE) {
