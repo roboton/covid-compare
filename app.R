@@ -10,26 +10,30 @@ min_global <- 1
 refresh_interval <- hours(6)
 
 # pull in data
-jhu <- fetchPrepJhuData()
-covtrack <- fetchPrepCovTrackData()
-nyt <- fetchPrepNyt()
-cds <- fetchPrepCorDataScrape()
+# jhu <- fetchPrepJhuData()
+# covtrack <- fetchPrepCovTrackData()
+# nyt <- fetchPrepNyt()
+# cds <- fetchPrepCorDataScrape()
+goog <- fetchPrepGoogData()
 
 all_locs <-  bind_rows(
-  jhu %>%
-    rename(location = country) %>%
-    mutate(source = "jhu"),
-  covtrack %>%
-    rename(location = state) %>%
-    mutate(source = "ctp"),
-  nyt %>%
-    rename(location = county) %>%
-    mutate(source = "nyt"),
-  cds %>%
-    mutate(source = "cds")) %>%
+  goog #%>%
+  #  mutate(source = "goog")# %>% filter(location == "US_CA")
+  # cds %>%
+  #   mutate(source = "cds"),
+  # jhu %>%
+  #   rename(location = country) %>%
+  #   mutate(source = "jhu"),
+  # covtrack %>%
+  #   rename(location = state) %>%
+  #   mutate(source = "ctp"),
+  # nyt %>%
+  #   rename(location = county) %>%
+  #   mutate(source = "nyt")
+  ) %>%
   # fetchJoinMobility() %>%
-  mutate(location = str_glue("{location} [{source}]")) %>%
-  select(-source) %>%
+  #mutate(location = str_glue("{location} [{source}]")) %>%
+  #select(-source) %>%
   group_by(location) %>%
   filter(any(stat == "deaths" & (!is.nan(popM) & popM >= min_global))) %>%
   # filter(!is.na(change_period)) %>%
@@ -192,7 +196,6 @@ ui <- function(request) {
         return(plotly_empty())
       }
       filter_locs %>%
-        filter(location %in% input$location) %>%
         genPlotComps(geo_level = "location",
                      min_thresh = input$min_thresh,
                      per_million = input$per_million,
