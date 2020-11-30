@@ -233,7 +233,7 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
     # plot begins
     ggplot(aes(days_since, value, color = location, label = date)) +
     scale_x_continuous() + 
-    geom_point(alpha = 0.2, size = 0.75) + 
+    geom_point(alpha = 0.4, size = 0.8) + 
     # no smoothing
     {if (!smooth_plots) geom_line(alpha = 0.8)} +
     # smoothing

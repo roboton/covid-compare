@@ -6,7 +6,7 @@ library(shinybusy)
 source("covidcomp_lib.R", local = TRUE)
 
 # set up global params
-min_global <- 10
+min_global <- 5
 refresh_interval <- hours(24)
 
 # pull in data
