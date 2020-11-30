@@ -7,14 +7,15 @@ source("covidcomp_lib.R", local = TRUE)
 
 # set up global params
 min_global <- 1
-refresh_interval <- hours(6)
+refresh_interval <- hours(24)
 
 # pull in data
 # jhu <- fetchPrepJhuData()
 # covtrack <- fetchPrepCovTrackData()
 # nyt <- fetchPrepNyt()
 # cds <- fetchPrepCorDataScrape()
-goog <- fetchPrepGoogData()
+goog <- readRDS(url("https://ond3.com/goog.rds"))
+#goog <- fetchPrepGoogData()
 
 all_locs <-  bind_rows(
   goog #%>%
@@ -110,7 +111,7 @@ ui <- function(request) {
                       "Counts per million people", value = TRUE),
         numericInput("max_days_since",
                      "days since initial number of deaths/cases:",
-                     min = 0, value = 120),
+                     min = 0, value = 360),
         # plot options
         checkboxInput("smooth_plots",
                       "Smooth plot values", value = TRUE), 

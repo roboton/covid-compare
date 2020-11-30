@@ -178,6 +178,7 @@ fetchPrepGoogData <- function() {
     mutate(#negative_tests = total_tests - confirmed,
            cfr = deaths / confirmed,
            ptr = confirmed / total_tests) %>%
+    filter(cfr < 1 & ptr < 1) %>%
     pivot_longer(c(-date, -location, -population),
                  names_to = "stat", values_to = "total") %>%
     mutate(popM = if_else(
@@ -469,7 +470,7 @@ genCompData <- function(df, geo_level = NA, min_stat = "deaths",
     filter(any(!is.na(first_date)) & min_stat %in% stat &
              date >= first(first_date)) %>%
     # recenter dates
-    mutate(days_since = date - first_date) %>%
+    mutate(days_since = as.numeric(date - first_date)) %>%
     ungroup() %>%
     # calculate double_days
     group_by(location, stat) %>% arrange(date) %>%
