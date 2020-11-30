@@ -1,6 +1,6 @@
 library(shiny)
-library(shinythemes)
-library(shinyjs)
+#library(shinythemes)
+#library(shinyjs)
 library(shinybusy)
 
 source("covidcomp_lib.R", local = TRUE)
@@ -10,57 +10,13 @@ min_global <- 1
 refresh_interval <- hours(24)
 
 # pull in data
-# jhu <- fetchPrepJhuData()
-# covtrack <- fetchPrepCovTrackData()
-# nyt <- fetchPrepNyt()
-# cds <- fetchPrepCorDataScrape()
-goog <- readRDS(url("https://ond3.com/goog.rds"))
-#goog <- fetchPrepGoogData()
+all_locs <- lazy_dt(fst::read_fst("data/goog.fst"), key_by = "location")
+#all_locs <- fst::read_fst("data/goog.fst")
 
-all_locs <-  bind_rows(
-  goog #%>%
-  #  mutate(source = "goog")# %>% filter(location == "US_CA")
-  # cds %>%
-  #   mutate(source = "cds"),
-  # jhu %>%
-  #   rename(location = country) %>%
-  #   mutate(source = "jhu"),
-  # covtrack %>%
-  #   rename(location = state) %>%
-  #   mutate(source = "ctp"),
-  # nyt %>%
-  #   rename(location = county) %>%
-  #   mutate(source = "nyt")
-  ) %>%
-  # fetchJoinMobility() %>%
-  #mutate(location = str_glue("{location} [{source}]")) %>%
-  #select(-source) %>%
-  group_by(location) %>%
-  filter(any(stat == "deaths" & (!is.nan(popM) & popM >= min_global))) %>%
-  # filter(!is.na(change_period)) %>%
-  ungroup()
-
-# location_severity <- getLocationSeverity(all_locs)
-# loc_list <- location_severity %>% pull(location) %>% unique()
-# default_locations <- sample(location_severity$location, 8,
-#                             prob = pmax(location_severity$severity, 0))
-
-
-# loc_list <- all_locs %>% pull(location) %>% unique()
-# default_locations <- c("Hubei, China [cds]",
-#                        "King County, Washington [nyt]",
-#                        "Orleans County, Louisiana [nyt]",
-#                        "Louisiana, USA [ctp]",
-#                        "New York, USA [ctp]",
-#                        "New York City, New York [nyt]",
-#                        "Lombardy, ITA [cds]",
-#                        "Korea, South [jhu]")
-
-# default_locations <- c("Hubei, China",
-#                        "Lombardy, Italy",
-#                        "New York City, New York, United States")
-loc_list <- getLocationList(all_locs, severity = "simple")
-n_locs <- 10
+#loc_list <- getLocationList(all_locs, severity = "none")
+n_locs <- 5
+loc_list <- all_locs %>% select(location) %>%
+  mutate(severity = 1) %>% distinct() %>% collect()
 
 last_update <- now(tzone = "GMT")
 
@@ -77,9 +33,9 @@ ui <- function(request) {
 ui <- function(request) {
   fluidPage(
     tags$head(includeHTML(("www/google-analytics.html"))),
-    useShinyjs(), # for moving showcase code to the bottom
+    #useShinyjs(), # for moving showcase code to the bottom
     add_busy_bar(color = "CornflowerBlue", timeout = 800),
-    theme = shinytheme("lumen"),
+    #theme = shinytheme("lumen"),
     titlePanel("Covid-19 comparisons"),
     tags$a(
       href = "https://github.com/roboton/covid-compare",
@@ -189,14 +145,17 @@ ui <- function(request) {
 }
    
   server <- function(input, output, session) {
-    shinyjs::runjs("toggleCodePosition();")
+    #shinyjs::runjs("toggleCodePosition();")
     output$compPlot <- renderPlotly({
-      filter_locs <- all_locs %>%
-        filter(location %in% input$location)
-      if (nrow(filter_locs) == 0) {
-        return(plotly_empty())
-      }
-      filter_locs %>%
+      # filter_locs <- all_locs %>%
+      #   filter(location %in% !!input$location) %>% collect()
+      # if (nrow(filter_locs) == 0) {
+      #   return(plotly_empty())
+      # }
+      # filter_locs %>%
+      all_locs %>%
+        filter(location %in% !!input$location) %>%
+        collect() %>%
         genPlotComps(geo_level = "location",
                      min_thresh = input$min_thresh,
                      per_million = input$per_million,
