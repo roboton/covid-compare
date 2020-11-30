@@ -11,12 +11,13 @@ refresh_interval <- hours(24)
 
 # pull in data
 all_locs <- lazy_dt(fst::read_fst("data/goog.fst"), key_by = "location")
-#all_locs <- fst::read_fst("data/goog.fst")
 
-#loc_list <- getLocationList(all_locs, severity = "none")
 n_locs <- 5
-loc_list <- all_locs %>% select(location) %>%
-  mutate(severity = 1) %>% distinct() %>% collect()
+loc_list <- all_locs %>% filter(stat == "deaths") %>%
+  group_by(location) %>%
+  summarise(severity = log(last(popM, order_by = date))) %>%
+  filter(is.finite(severity) & severity > 0) %>%
+  collect()
 
 last_update <- now(tzone = "GMT")
 
@@ -80,15 +81,9 @@ ui <- function(request) {
         h3("Why another dashboard?"),
         p("Facts are useful, but in times like these they can also be overwhelming. It can be helpful to organize these facts so they can provide perspective and focus our attention to the right places."),
         p("The measures presented here aim to improve on existing measures of Covid-19 severity in three key ways:"),
-        p("1..Case counts can be misleading because of variation and bias in Covid-19 testing capacity and policies. These measures focus on comparing and tracking deaths rather than cases."),
+        p("1. Case counts can be misleading because of variation and bias in Covid-19 testing capacity and policies. These measures focus on comparing and tracking deaths rather than cases."),
         p("2. Absolute counts of deaths don't take population into account. By default, death and case counts are measured per one million people."),
         p("3. Different locations had their outbreaks happen at different times. These measures realign dates starting at the same severity starting point (one death per million people)."),
-        p("Data from ", a(href = "https://coronavirus.jhu.edu/map.html", "JHU CSSE"), "[jhu]",
-          ", ",  a(href = "https://coronadatascraper.com", "Corona Data Scraper"),  "[cds]",
-          ", ",  a(href = "https://github.com/nytimes/covid-19-data", "NY Times"), "[nyt]",
-          ", ",  a(href = "https://www.cdc.gov/flu/weekly/index.htm", "CDC FluView"), "[ctp]",
-          " and ", a(href = "https://covidtracking.com/", "Covid Tracking Project"), "[ctp]",
-          ". Great ideas from ", a(href = "https://twitter.com/loeserjohn", "John.")),
         width = 2),
       mainPanel(
         tabsetPanel(
@@ -99,10 +94,10 @@ ui <- function(request) {
               "compPlot", width = "100%", height = "1400px"),
               downloadButton("downloadGlobalData", "download data (csv)")
           ),
-          tabPanel(
-            "Severity", value = "severity",
-            DT::dataTableOutput("severityTable")
-          ),
+          # tabPanel(
+          #   "Severity", value = "severity",
+          #   DT::dataTableOutput("severityTable")
+          # ),
           tabPanel(
             "FAQ",
             h4("Why does my country, state, province, or county not show up at all?"),
@@ -110,18 +105,8 @@ ui <- function(request) {
             h4("How frequently does this update?"),
             p("At least every six hours. Last updated date is shown below the title."),
             h4("Where does the data come from?"),
-            p(
-              a(href = "https://coronadatascraper.com/", "Corona Data Scraper"),
-              "[cds], ",
-              a(href = "https://coronavirus.jhu.edu/map.html", "John Hopkins CSSE"),
-              "[jhu] for country data, ",
-              a(href = "https://www.cdc.gov/flu/weekly/index.htm", "CDC FluView"),
-              "[flu] for US state flu data, ",
-              a(href = "https://covidtracking.com/", "Covid Tracking Project"),
-              "[ctp] for US state data, and ",
-              a(href = "https://github.com/nytimes/covid-19-data",
-                "New York Times"), "[nyt] for US county data."),
-            h4("How do I add more locations to my plot?"),
+            p(a(href = "https://github.com/GoogleCloudPlatform/covid-19-open-data",
+                "Google")),
             p("Search as you type from the Location box on the left."),
             h4("How do I hide certain location in my plot?"),
             p("Unclick them from the legend on the right hand side."),
@@ -147,15 +132,12 @@ ui <- function(request) {
   server <- function(input, output, session) {
     #shinyjs::runjs("toggleCodePosition();")
     output$compPlot <- renderPlotly({
-      # filter_locs <- all_locs %>%
-      #   filter(location %in% !!input$location) %>% collect()
-      # if (nrow(filter_locs) == 0) {
-      #   return(plotly_empty())
-      # }
-      # filter_locs %>%
-      all_locs %>%
-        filter(location %in% !!input$location) %>%
-        collect() %>%
+      filter_locs <- all_locs %>%
+        filter(location %in% !!input$location) %>% collect()
+      if (nrow(filter_locs) == 0) {
+        return(plotly_empty())
+      }
+      filter_locs %>%
         genPlotComps(geo_level = "location",
                      min_thresh = input$min_thresh,
                      per_million = input$per_million,
@@ -167,9 +149,9 @@ ui <- function(request) {
                      double_days = input$double_days,
                      show_daily = input$show_daily)
       })
-    output$severityTable <- DT::renderDataTable({
-      loc_list
-    })
+    # output$severityTable <- DT::renderDataTable({
+    #   loc_list
+    # })
     output$downloadGlobalData <- downloadHandler(
       filename = function() {
         paste0("covid-global-comp-data-", Sys.Date(), ".csv")

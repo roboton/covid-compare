@@ -5,8 +5,9 @@ library(tidyr)
 library(purrr)
 library(stringr)
 library(vroom)
-library(lubridate)
-library(plotly)
+library(lubridate, warn.conflicts = FALSE)
+library(ggplot2)
+library(plotly, warn.conflicts = FALSE)
 #library(jsonlite)
 # data sources
 #library(covid19us)
@@ -187,7 +188,7 @@ compLabeller <- function(labels) {
 plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
                       max_days_since = 20, min_days_since = 3,
                       smooth_plots = TRUE, scale_to_fit = TRUE,
-                      per_million = TRUE, span = 0.2, double_days = FALSE,
+                      per_million = TRUE, span = 0.4, double_days = FALSE,
                       show_daily = FALSE) {
   total_or_daily = if (show_daily) "daily" else "total"
   df %>%
@@ -232,7 +233,7 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
     # plot begins
     ggplot(aes(days_since, value, color = location, label = date)) +
     scale_x_continuous() + 
-    geom_point(alpha = 0.2, size = 1) + 
+    geom_point(alpha = 0.2, size = 0.75) + 
     # no smoothing
     {if (!smooth_plots) geom_line(alpha = 0.8)} +
     # smoothing
@@ -274,7 +275,7 @@ cleanPlotly <- function(p, smooth_plots = TRUE) {
     
     return(x)
   })
-  return(partial_bundle(gp))
+  return(gp)
 }
 
 genPlotComps <- function(
