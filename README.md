@@ -1,4 +1,4 @@
-Why another dashboard?
+**Why another dashboard?**
 
 Facts are useful, but in times like these they can also be overwhelming. It can be helpful to organize these facts so they can provide perspective and focus our attention to the right places.
 

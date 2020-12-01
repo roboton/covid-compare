@@ -1,6 +1,4 @@
 library(shiny)
-library(shinyjs)
-library(shinybusy)
 
 source("covidcomp_lib.R", local = TRUE)
 
@@ -32,8 +30,8 @@ ui <- function(request) {
 }
 ui <- function(request) {
   fluidPage(
-    useShinyjs(), # for moving showcase code to the bottom
-    add_busy_bar(color = "CornflowerBlue", timeout = 1000),
+    shinyjs::useShinyjs(), # for moving showcase code to the bottom
+    shinybusy::add_busy_bar(color = "CornflowerBlue", timeout = 1000),
     titlePanel("Covid-19 comparisons"),
     tags$a(
       href = "https://github.com/roboton/covid-compare",

@@ -3,14 +3,13 @@ library(dplyr, warn.conflicts = FALSE)
 library(tidyr)
 library(purrr)
 library(stringr)
-library(vroom)
 library(lubridate, warn.conflicts = FALSE)
 library(ggplot2)
 library(plotly, warn.conflicts = FALSE)
 
 # Generate source data
 fetchPrepGoogData <- function(min_deaths = 1, min_cases = 10) {
-  vroom(
+  vroom::vroom(
     "https://storage.googleapis.com/covid19-open-data/v2/main.csv",
     col_select = c(date, key, confirmed = total_confirmed,
                    hospitalized = total_hospitalized,
@@ -169,6 +168,7 @@ cleanPlotly <- function(p, smooth_plots = TRUE) {
   gp <- ggplotly(p)
   # compare on mouse over
   gp$x$layout$hovermode <- "x unified"
+  gp$x$layout$font <- list(size = 12)
   # auto scale y-axes (modify in-place)
   sapply(names(gp$x$layout), FUN = function(x) {
     if (startsWith(x, "yaxis")) { gp$x$layout[[x]]$autorange <<- TRUE }
