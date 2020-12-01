@@ -1,6 +1,6 @@
 library(shiny)
 #library(shinythemes)
-#library(shinyjs)
+library(shinyjs)
 library(shinybusy)
 
 source("covidcomp_lib.R", local = TRUE)
@@ -33,9 +33,9 @@ ui <- function(request) {
 }
 ui <- function(request) {
   fluidPage(
-    tags$head(includeHTML(("www/google-analytics.html"))),
-    #useShinyjs(), # for moving showcase code to the bottom
-    add_busy_bar(color = "CornflowerBlue", timeout = 800),
+    #tags$head(includeHTML(("www/google-analytics.html"))),
+    useShinyjs(), # for moving showcase code to the bottom
+    add_busy_bar(color = "CornflowerBlue", timeout = 1000),
     #theme = shinytheme("lumen"),
     titlePanel("Covid-19 comparisons"),
     tags$a(
@@ -78,12 +78,6 @@ ui <- function(request) {
                       "Show double days", value = TRUE),
         checkboxInput("show_daily",
                       "Show daily", value = FALSE),
-        h3("Why another dashboard?"),
-        p("Facts are useful, but in times like these they can also be overwhelming. It can be helpful to organize these facts so they can provide perspective and focus our attention to the right places."),
-        p("The measures presented here aim to improve on existing measures of Covid-19 severity in three key ways:"),
-        p("1. Case counts can be misleading because of variation and bias in Covid-19 testing capacity and policies. These measures focus on comparing and tracking deaths rather than cases."),
-        p("2. Absolute counts of deaths don't take population into account. By default, death and case counts are measured per one million people."),
-        p("3. Different locations had their outbreaks happen at different times. These measures realign dates starting at the same severity starting point (one death per million people)."),
         width = 2),
       mainPanel(
         tabsetPanel(
@@ -130,7 +124,7 @@ ui <- function(request) {
 }
    
   server <- function(input, output, session) {
-    #shinyjs::runjs("toggleCodePosition();")
+    shinyjs::runjs("toggleCodePosition();")
     output$compPlot <- renderPlotly({
       filter_locs <- all_locs %>%
         filter(location %in% !!input$location) %>% collect()

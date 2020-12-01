@@ -251,7 +251,8 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
     # thematic things
     theme_minimal() +
     theme(legend.title = element_blank(), axis.title.y = element_blank(),
-          plot.title = element_text(hjust = 0.5)) +
+          plot.title = element_text(hjust = 0.5),
+          legend.position = "none") +
     ylim(0, NA)
 }
 
