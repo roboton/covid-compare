@@ -1,4 +1,3 @@
-#library(tidyverse)
 library(dtplyr)
 library(dplyr, warn.conflicts = FALSE)
 library(tidyr)
@@ -8,92 +7,6 @@ library(vroom)
 library(lubridate, warn.conflicts = FALSE)
 library(ggplot2)
 library(plotly, warn.conflicts = FALSE)
-#library(jsonlite)
-# data sources
-#library(covid19us)
-#library(wbstats)
-#library(tidycensus)
-#library(cdcfluview)
-
-# Location list functions
-addForecast <- function(df, ext_days = 7, span = 1, min_days = 10) {
-  has_dates <- df$date[!is.na(df$total) & !is.na(df$popM)]
-  if (sum(has_dates >= today() - days(min_days)) < min_days) { 
-    pred_dat <- df %>% cbind(total_pred = NA, popM_pred = NA)
-    return(pred_dat)
-  }
-  new_dates <- df$date %>% c(seq(max(., na.rm = T) + 1,
-                                 max(., na.rm = T) + 1 + days(ext_days),
-                                 by = "day"))
-  
-  ts_dat <- df %>%
-    right_join(tibble(date = new_dates), by = "date")
-  
-  pred_dat <- ts_dat %>%
-    mutate(
-      total_pred = loess(total ~ as.numeric(date), data = ts_dat, span = span,
-                         control = loess.control(surface = "direct")) %>%
-        predict(as.numeric(new_dates)),
-      popM_pred = loess(popM ~ as.numeric(date), data = ts_dat, span = span,
-                         control = loess.control(surface = "direct")) %>%
-        predict(as.numeric(new_dates))) %>%
-    mutate_at(vars(ends_with("_pred")), function(x) {
-      x[x < 0] <- 0
-      for (i in 2:length(x)) {
-        x[i] <- { if (x[i] < x[i - 1]) x[i - 1] else x[i] }
-      }
-      return(x)
-    })
-  return(pred_dat)
-}
-
-cleanSd <- function(x) {
-  sd(Filter(function(y) !is.infinite(y), x), na.rm = TRUE)
-}
-
-getForecastSeverity <- function(all_locs) {
-  all_locs %>% filter(stat == "deaths") %>%
-    group_by(location) %>% nest() %>%
-    rowwise() %>%
-    mutate(data = list(addForecast(data))) %>% unnest(cols = c(data)) %>%
-    group_by(location) %>%
-    summarise(severity_total = suppressWarnings(
-      max(total_pred, na.rm = TRUE) - max(total, na.rm = TRUE)),
-              severity_popM = suppressWarnings(
-                max(popM_pred, na.rm = TRUE) - max(popM, na.rm = TRUE))) %>%
-    ungroup() %>%
-    mutate(severity = severity_total / cleanSd(severity_total) +
-           severity_popM / cleanSd(severity_popM)) %>%
-    mutate(location = fct_reorder(location, desc(severity)))
-}
-
-getSimpleSeverity <- function(all_locs) {
-  all_locs %>% filter(stat == "deaths") %>%
-    group_by(location) %>%
-    arrange(desc(popM), desc(date)) %>%
-    top_n(2, wt = popM) %>%
-    arrange(desc(date)) %>%
-    mutate(day_before = date - days(1) == lead(date),
-           total_diff = total - lead(total),
-           popM_diff = popM - lead(popM)) %>%
-    ungroup() %>%
-    filter(day_before | is.na(day_before)) %>%
-    mutate(total_diff = pmax(as.vector(scale(total_diff, center = FALSE)), 0),
-           popM_diff = pmax(as.vector(scale(popM_diff, center = FALSE)), 0)) %>%
-    mutate(severity = replace_na(total_diff + popM_diff, 0)) %>%
-    arrange(desc(unlist(severity))) %>%
-    select(location, total_diff, popM_diff, severity)
-}
-
-# severity can be one of "none", "simple" or "forecast"
-getLocationList <- function(all_locs, severity = "none")  {
-  if (severity == "simple") {
-    return(getSimpleSeverity(all_locs))
-  } else if (severity == "forecast") {
-    return(getForecastSeverity(all_locs))
-  }
-  return(all_locs %>% select(location) %>% unique() %>% mutate(severity = 1))
-}
 
 # Generate source data
 fetchPrepGoogData <- function(min_deaths = 1, min_cases = 10) {
@@ -110,15 +23,11 @@ fetchPrepGoogData <- function(min_deaths = 1, min_cases = 10) {
                   population = "n", total_intensive_care = "n", date = "D",
                   locality_name = "c", subregion2_name = "c",
                   subregion1_name = "c", country_name = "c"),
-    # col_types = c(locality_code = "c", locality_name = "c",
-    #               new_intensive_care = "n", total_intensive_care = "n",
-    #               current_intensive_care = "n", new_ventilator = "n",
-    #               total_ventilator = "n", current_ventilator = "n"),
     num_threads = 16
     ) %>%
-    unite(name, ends_with("_name"), sep = ",", na.rm = TRUE) %>%
+    unite(name, ends_with("_name"), sep = ", ", na.rm = TRUE) %>%
     mutate(key = str_replace(key, "^.*_", "")) %>%
-    unite(location, name, key, sep = " - ") %>%
+    unite(location, name, key, sep = " ") %>%
     mutate(#negative_tests = total_tests - confirmed,
            case_fatality_rate = deaths / confirmed,
            positive_test_rate = confirmed / total_tests) %>%
@@ -266,8 +175,6 @@ cleanPlotly <- function(p, smooth_plots = TRUE) {
   }) 
   # edit data properties (edit and copy)
   gp$x$data <- lapply(gp$x$data, FUN = function(x) {
-    # show default countries by default
-    # x$visible <- ifelse(x$name %in% default_locations, TRUE, "legendonly")
     # only remove line hover over text if we're smoothing plots
     if (x$mode == "lines" && smooth_plots) {
       x$hoverinfo <- "none"
@@ -308,6 +215,7 @@ genPlotComps <- function(
 }
 
 refreshData <- function() {
+  # global scope assignment
   goog <<- fetchPrepGoogData()
   last_update <<- now()
 }

@@ -1,5 +1,4 @@
 library(shiny)
-#library(shinythemes)
 library(shinyjs)
 library(shinybusy)
 
@@ -33,10 +32,8 @@ ui <- function(request) {
 }
 ui <- function(request) {
   fluidPage(
-    #tags$head(includeHTML(("www/google-analytics.html"))),
     useShinyjs(), # for moving showcase code to the bottom
     add_busy_bar(color = "CornflowerBlue", timeout = 1000),
-    #theme = shinytheme("lumen"),
     titlePanel("Covid-19 comparisons"),
     tags$a(
       href = "https://github.com/roboton/covid-compare",
@@ -53,8 +50,13 @@ ui <- function(request) {
         selectizeInput(
           "location", "Location",
           choices = loc_list$location,
-          selected = sample(loc_list$location, size = n_locs,
-                            prob = loc_list$severity),
+          selected = sample(
+            # remove locations with a comma (country level only default select)
+            loc_list$location[str_detect(loc_list$location, ",",
+                                         negate = TRUE)],
+            size = n_locs,
+            prob = loc_list$severity[str_detect(loc_list$location, ",",
+                                         negate = TRUE)]),
           options = list(
             placeholder = 'type to select a location'),
           multiple = TRUE),
@@ -97,17 +99,17 @@ ui <- function(request) {
             h4("Why does my country, state, province, or county not show up at all?"),
             p("By default only locations that have at least one death per million people are compared. Setting initial deaths (per million) to zero, for example, will show all locations."),
             h4("How frequently does this update?"),
-            p("At least every six hours. Last updated date is shown below the title."),
+            p("Every 24 hours. Last updated date is shown below the title."),
             h4("Where does the data come from?"),
             p(a(href = "https://github.com/GoogleCloudPlatform/covid-19-open-data",
                 "Google")),
             p("Search as you type from the Location box on the left."),
-            h4("How do I hide certain location in my plot?"),
-            p("Unclick them from the legend on the right hand side."),
-            h4("How do I show just one location in my plot?"),
-            p("Double click that location from the legend on the right hand side."),
-            h4("When I unclick a location, the plot moves. Why does that happen?"),
-            p("The y-axis scales to the minimum and maximum values displayed on the plot."),
+            # h4("How do I hide certain location in my plot?"),
+            # p("Unclick them from the legend on the right hand side."),
+            # h4("How do I show just one location in my plot?"),
+            # p("Double click that location from the legend on the right hand side."),
+            # h4("When I unclick a location, the plot moves. Why does that happen?"),
+            # p("The y-axis scales to the minimum and maximum values displayed on the plot."),
             h4("What does it mean for days to double to increase over time?"),
             p("It's taking longer and longer for your counts to double - this is good for things we don't want like deaths and cases."),
             h4("What does the Download button do?"),
