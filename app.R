@@ -13,10 +13,14 @@ n_locs <- 3
 all_locs <- lazy_dt(fst::read_fst(data_file), key_by = "location")
 loc_list <- all_locs %>% filter(stat == "deaths") %>%
   group_by(location) %>%
-  summarise(severity = log(last(popM, order_by = date)), .groups = "drop") %>%
-  filter(is.finite(severity) & severity > 0) %>%
-  mutate(commas = str_count(location, ",")) %>%
-  arrange(commas) %>%
+  arrange(location, -date) %>%
+  summarise(
+    severity_popM = first(popM) - nth(popM, 2),
+    severity_total = first(total) - nth(total, 2)) %>%
+  ungroup() %>%
+  filter(is.finite(severity_total) & severity_total > 0) %>%
+  mutate(level = str_count(location, ",")) %>%
+  arrange(level) %>% select(-level) %>%
   collect()
 
 # control over mouse over values in plotly plot
@@ -81,10 +85,10 @@ ui <- function(request) {
               "compPlot", width = "100%", height = "1400px"),
               downloadButton("downloadGlobalData", "download data (csv)")
           ),
-          # tabPanel(
-          #   "Severity", value = "severity",
-          #   DT::dataTableOutput("severityTable")
-          # ),
+          tabPanel(
+            "Severity", value = "severity",
+            DT::dataTableOutput("severityTable")
+          ),
           tabPanel(
             "FAQ",
             h4("Why does my country, state, province, or county not show up at all?"),
@@ -92,8 +96,8 @@ ui <- function(request) {
             h4("How frequently does this update?"),
             p("Every 24 hours. Last updated date is shown below the title."),
             h4("Where does the data come from?"),
-            p(a(href = "https://github.com/GoogleCloudPlatform/covid-19-open-data",
-                "Google")),
+            p("Google's excellent ", a(href = "https://github.com/GoogleCloudPlatform/covid-19-open-data",
+                "covid19-open-data"), "."),
             h4("How do I add or remove more locations from the plot?"),
             p("Search as you type from the Location box on the left to add. Delete to remove."),
             h4("How do I hide certain location in my plot?"),
@@ -118,17 +122,6 @@ ui <- function(request) {
 } 
    
 server <- function(input, output, session) {
-  #shinyjs::runjs("toggleCodePosition();")
-  # all_locs <- reactivePoll(
-  #   1000, NULL,
-  #   function() { (now() - file.info(data_file)$mtime) > refresh_interval },
-  #   function() { lazy_dt(fst::write_fst(fetchPrepGoogData(weekly = TRUE),
-  #                                       data_file), key_by = "location") })
-  updateSelectizeInput(session, 'location', choices = loc_list$location,
-                       selected = sample(
-                         loc_list$location, size = n_locs,
-                         prob = loc_list$severity),
-                       server = TRUE)
   output$compPlot <- renderPlotly({
     filter_locs <- all_locs %>%
       filter(location %in% !!input$location) %>% collect()
@@ -147,19 +140,28 @@ server <- function(input, output, session) {
                    show_new = input$show_new,
                    show_legend = input$show_legend)
     })
-  # output$severityTable <- DT::renderDataTable({
-  #   loc_list
-  # })
+  output$severityTable <- DT::renderDataTable({
+    loc_list %>% arrange(-severity_popM)
+  })
   output$downloadGlobalData <- downloadHandler(
     filename = function() {
       paste0("covid-global-comp-data-", Sys.Date(), ".csv")
     },
     content = function(file) {
-      write_csv(all_locs() %>% genCompData(
-        geo_level = "location", min_thresh = input$min_thresh,
-        per_million = input$per_million, min_stat = input$min_stat), file)
+      readr::write_csv(all_locs %>% filter(location %in% !!input$location) %>%
+                         collect(), file)
     }
   )
+  # server side location selectize
+  updateSelectizeInput(session, "location", choices = loc_list$location,
+                       selected = sample(
+                         loc_list$location, size = n_locs,
+                         prob = loc_list$severity_total),
+                       server = TRUE)
+  onRestore(function(state) {
+    updateSelectizeInput(session, "location", choices = loc_list$location,
+                         selected = state$input$location, server = TRUE)
+  })
 }
 
 shinyApp(ui = ui, server = server, enableBookmarking = "url")
