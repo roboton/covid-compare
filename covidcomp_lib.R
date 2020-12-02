@@ -8,7 +8,7 @@ library(ggplot2)
 library(plotly, warn.conflicts = FALSE)
 
 # Generate source data
-fetchPrepGoogData <- function(min_deaths = 1, min_cases = 10) {
+fetchPrepGoogData <- function(min_deaths = 1, min_cases = 10, weekly = FALSE) {
   vroom::vroom(
     "https://storage.googleapis.com/covid19-open-data/v2/main.csv",
     col_select = c(date, key, confirmed = total_confirmed,
@@ -22,11 +22,18 @@ fetchPrepGoogData <- function(min_deaths = 1, min_cases = 10) {
                   population = "n", total_intensive_care = "n", date = "D",
                   locality_name = "c", subregion2_name = "c",
                   subregion1_name = "c", country_name = "c"),
-    num_threads = 16
-    ) %>%
+    num_threads = 16) %>%
     unite(name, ends_with("_name"), sep = ", ", na.rm = TRUE) %>%
     mutate(key = str_replace(key, "^.*_", "")) %>%
     unite(location, name, key, sep = " ") %>%
+    { if(weekly) {
+      mutate(., date = floor_date(date, "week")) %>%
+        group_by(date, location) %>%
+        summarise(across(c(-population), sum, na.rm = TRUE),
+                  across(population, mean, na.rm = TRUE),
+                  num_dates = n(), .groups = "drop") %>%
+        filter(num_dates == 7) %>% select(-num_dates)
+      } else . } %>%
     mutate(#negative_tests = total_tests - confirmed,
            case_fatality_rate = deaths / confirmed,
            positive_test_rate = confirmed / total_tests) %>%
@@ -96,9 +103,9 @@ compLabeller <- function(labels) {
 plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
                       max_days_since = 20, min_days_since = 3,
                       smooth_plots = TRUE, scale_to_fit = TRUE,
-                      per_million = TRUE, span = 0.4, double_days = FALSE,
-                      show_daily = FALSE) {
-  total_or_daily = if (show_daily) "daily" else "total"
+                      per_million = TRUE, span = 0.5, double_days = FALSE,
+                      show_new = FALSE, show_legend = TRUE) {
+  total_or_new = if (show_new) "new" else "total"
   df %>%
     { if (!double_days) filter(., value_type != "double_days") else . } %>%
     # lazy filter for erroneous data
@@ -108,7 +115,7 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
     # filter not enough points
     group_by(location, stat, value_type) %>%
     filter( n() >= min_days_since) %>%
-    { if (show_daily) mutate(., value = if_else(
+    { if (show_new) mutate(., value = if_else(
       value_type != "double_days" & !str_ends(value_type, "_rate"),
       value - lag(value), value)) else . } %>%
     ungroup() %>%
@@ -116,8 +123,8 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
     mutate(
       value_type = factor(value_type,
                           levels = c("total", "popM", "double_days"),
-                          labels = c(paste(total_or_daily, "count"),
-                                     paste(total_or_daily,
+                          labels = c(paste(total_or_new, "count"),
+                                     paste(total_or_new,
                                            "count per million people"),
                                      "Days to double total count")),
       stat = factor(stat, levels = c("deaths", "confirmed",
@@ -159,8 +166,8 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
     # thematic things
     theme_minimal() +
     theme(legend.title = element_blank(), axis.title.y = element_blank(),
-          plot.title = element_text(hjust = 0.5),
-          legend.position = "none") +
+          plot.title = element_text(hjust = 0.5)) +
+    {if (!show_legend) theme(legend.position = "none") } +
     ylim(0, NA)
 }
 
@@ -172,7 +179,7 @@ cleanPlotly <- function(p, smooth_plots = TRUE) {
   # auto scale y-axes (modify in-place)
   sapply(names(gp$x$layout), FUN = function(x) {
     if (startsWith(x, "yaxis")) { gp$x$layout[[x]]$autorange <<- TRUE }
-  }) 
+  })
   # edit data properties (edit and copy)
   gp$x$data <- lapply(gp$x$data, FUN = function(x) {
     # only remove line hover over text if we're smoothing plots
@@ -180,7 +187,7 @@ cleanPlotly <- function(p, smooth_plots = TRUE) {
       x$hoverinfo <- "none"
       x$text <- NA
     }
-    
+
     return(x)
   })
   return(gp)
@@ -190,7 +197,7 @@ genPlotComps <- function(
   df, min_stat = "deaths", geo_level = "location", min_thresh = 1,
   max_days_since = 45, min_days_since = 3, smooth_plots = TRUE,
   scale_to_fit = TRUE, per_million = TRUE, refresh_interval = hours(6),
-  double_days = TRUE, show_daily = FALSE) {
+  double_days = TRUE, show_new= FALSE, show_legend = TRUE) {
   
   # refresh data after refresh_interval 
   data_age <- as.period(now() - last_update)
@@ -210,7 +217,7 @@ genPlotComps <- function(
       smooth_plots = smooth_plots, min_stat = min_stat,
       scale_to_fit = scale_to_fit, per_million = per_million,
       min_days_since = min_days_since, double_days = double_days,
-      show_daily = show_daily) %>%
+      show_new= show_new, show_legend = show_legend) %>%
     cleanPlotly(smooth_plots = smooth_plots)
 }
 

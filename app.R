@@ -7,7 +7,7 @@ min_global <- 5
 refresh_interval <- hours(24)
 
 # pull in data
-all_locs <- lazy_dt(fst::read_fst("data/goog.fst"), key_by = "location")
+all_locs <- lazy_dt(fst::read_fst("data/goog_week.fst"), key_by = "location")
 
 n_locs <- 5
 loc_list <- all_locs %>% filter(stat == "deaths") %>%
@@ -50,11 +50,11 @@ ui <- function(request) {
           choices = loc_list$location,
           selected = sample(
             # remove locations with a comma (country level only default select)
-            loc_list$location[str_detect(loc_list$location, ",",
-                                         negate = TRUE)],
+            loc_list$location[
+              str_detect(loc_list$location, ",", negate = TRUE)],
             size = n_locs,
-            prob = loc_list$severity[str_detect(loc_list$location, ",",
-                                         negate = TRUE)]),
+            prob = loc_list$severity[
+              str_detect(loc_list$location, ",", negate = TRUE)]),
           options = list(
             placeholder = 'type to select a location'),
           multiple = TRUE),
@@ -76,8 +76,10 @@ ui <- function(request) {
                       "Scale to fit", value = TRUE),
         checkboxInput("double_days",
                       "Show double days", value = TRUE),
-        checkboxInput("show_daily",
-                      "Show daily", value = FALSE),
+        checkboxInput("show_new",
+                      "Show new", value = FALSE),
+        checkboxInput("show_legend",
+                      "Show legend", value = TRUE),
         width = 2),
       mainPanel(
         tabsetPanel(
@@ -102,12 +104,12 @@ ui <- function(request) {
             p(a(href = "https://github.com/GoogleCloudPlatform/covid-19-open-data",
                 "Google")),
             p("Search as you type from the Location box on the left."),
-            # h4("How do I hide certain location in my plot?"),
-            # p("Unclick them from the legend on the right hand side."),
-            # h4("How do I show just one location in my plot?"),
-            # p("Double click that location from the legend on the right hand side."),
-            # h4("When I unclick a location, the plot moves. Why does that happen?"),
-            # p("The y-axis scales to the minimum and maximum values displayed on the plot."),
+            h4("How do I hide certain location in my plot?"),
+            p("Unclick them from the legend on the right hand side."),
+            h4("How do I show just one location in my plot?"),
+            p("Double click that location from the legend on the right hand side."),
+            h4("When I unclick a location, the plot moves. Why does that happen?"),
+            p("The y-axis scales to the minimum and maximum values displayed on the plot."),
             h4("What does it mean for days to double to increase over time?"),
             p("It's taking longer and longer for your counts to double - this is good for things we don't want like deaths and cases."),
             h4("What does the Download button do?"),
@@ -141,7 +143,8 @@ ui <- function(request) {
                      scale_to_fit = input$scale_to_fit,
                      refresh_interval = refresh_interval,
                      double_days = input$double_days,
-                     show_daily = input$show_daily)
+                     show_new = input$show_new,
+                     show_legend = input$show_legend)
       })
     # output$severityTable <- DT::renderDataTable({
     #   loc_list
