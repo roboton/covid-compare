@@ -28,13 +28,6 @@ options(scipen = 999, digits = 1)
 
 ui <- function(request) {
   fluidPage(
-    textInput("txt", "Text"),
-    checkboxInput("chk", "Checkbox"),
-    bookmarkButton()
-  )
-}
-ui <- function(request) {
-  fluidPage(
     #shinyjs::useShinyjs(), # for moving showcase code to the bottom
     shinybusy::add_busy_bar(color = "CornflowerBlue", timeout = 1000),
     titlePanel("Covid-19 comparisons"),
@@ -152,15 +145,40 @@ server <- function(input, output, session) {
                          collect(), file)
     }
   )
+  
+  
+  
   # server side location selectize
   updateSelectizeInput(session, "location", choices = loc_list$location,
-                       selected = sample(
-                         loc_list$location, size = n_locs,
-                         prob = loc_list$severity_total),
                        server = TRUE)
-  onRestore(function(state) {
+  # ensure we don't overwrite restore locations with defaults
+  session$onRestore(function(state) {
+    session$userData$restored <- TRUE
     updateSelectizeInput(session, "location", choices = loc_list$location,
                          selected = state$input$location, server = TRUE)
+  })
+  session$onFlushed(function() {
+    if (is.null(session$userData$restored)) {
+      updateSelectizeInput(session, "location", choices = loc_list$location,
+                           selected = c(
+                             sample(loc_list$location, size = n_locs,
+                                    prob = loc_list$severity_total),
+                             sample(loc_list$location, size = n_locs,
+                                    prob = log(loc_list$severity_popM + 1))),
+                             server = TRUE)
+    }
+  }, once = TRUE)
+  
+  # slim down bookmark url
+  input_include <- c("location", "min_stat", "min_thresh", "per_million",
+                     "max_days_since", "smooth_plots", "scale_to_fit",
+                     "double_days", "show_new", "show_legend")
+  input_exclude <- reactiveVal(value = NULL)
+  
+  observe({
+    to_exclude <- setdiff(names(input), input_include)
+    setBookmarkExclude(to_exclude)
+    input_exclude(to_exclude)
   })
 }
 
