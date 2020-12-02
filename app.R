@@ -5,18 +5,19 @@ source("covidcomp_lib.R", local = TRUE)
 # set up global params
 min_global <- 5
 refresh_interval <- hours(24)
+data_file <- "data/goog_weekly.fst"
+last_update <- file.info(data_file)$mtime
+n_locs <- 3
 
 # pull in data
-all_locs <- lazy_dt(fst::read_fst("data/goog_weekly.fst"), key_by = "location")
-
-n_locs <- 5
+all_locs <- lazy_dt(fst::read_fst(data_file), key_by = "location")
 loc_list <- all_locs %>% filter(stat == "deaths") %>%
   group_by(location) %>%
-  summarise(severity = log(last(popM, order_by = date))) %>%
+  summarise(severity = log(last(popM, order_by = date)), .groups = "drop") %>%
   filter(is.finite(severity) & severity > 0) %>%
+  mutate(commas = str_count(location, ",")) %>%
+  arrange(commas) %>%
   collect()
-
-last_update <- now(tzone = "GMT")
 
 # control over mouse over values in plotly plot
 options(scipen = 999, digits = 1)
@@ -30,7 +31,7 @@ ui <- function(request) {
 }
 ui <- function(request) {
   fluidPage(
-    shinyjs::useShinyjs(), # for moving showcase code to the bottom
+    #shinyjs::useShinyjs(), # for moving showcase code to the bottom
     shinybusy::add_busy_bar(color = "CornflowerBlue", timeout = 1000),
     titlePanel("Covid-19 comparisons"),
     tags$a(
@@ -46,18 +47,8 @@ ui <- function(request) {
       sidebarPanel(
         # data options
         selectizeInput(
-          "location", "Location",
-          choices = loc_list$location,
-          selected = sample(
-            # remove locations with a comma (country level only default select)
-            loc_list$location[
-              str_detect(loc_list$location, ",", negate = TRUE)],
-            size = n_locs,
-            prob = loc_list$severity[
-              str_detect(loc_list$location, ",", negate = TRUE)]),
-          options = list(
-            placeholder = 'type to select a location'),
-          multiple = TRUE),
+          "location", "Location", choices = NULL, multiple = TRUE,
+          options = list(placeholder = 'type to select a location')),
         bookmarkButton(),
         selectInput("min_stat", "metric to compare by:",
                     c("Deaths" = "deaths", "Confirmed cases" = "confirmed")),
@@ -103,7 +94,8 @@ ui <- function(request) {
             h4("Where does the data come from?"),
             p(a(href = "https://github.com/GoogleCloudPlatform/covid-19-open-data",
                 "Google")),
-            p("Search as you type from the Location box on the left."),
+            h4("How do I add or remove more locations from the plot?"),
+            p("Search as you type from the Location box on the left to add. Delete to remove."),
             h4("How do I hide certain location in my plot?"),
             p("Unclick them from the legend on the right hand side."),
             h4("How do I show just one location in my plot?"),
@@ -123,42 +115,51 @@ ui <- function(request) {
       )
     )
   )
-}
+} 
    
-  server <- function(input, output, session) {
-    shinyjs::runjs("toggleCodePosition();")
-    output$compPlot <- renderPlotly({
-      filter_locs <- all_locs %>%
-        filter(location %in% !!input$location) %>% collect()
-      if (nrow(filter_locs) == 0) {
-        return(plotly_empty())
-      }
-      filter_locs %>%
-        genPlotComps(geo_level = "location",
-                     min_thresh = input$min_thresh,
-                     per_million = input$per_million,
-                     min_stat = input$min_stat,
-                     max_days_since = input$max_days_since,
-                     smooth_plots = input$smooth_plots,
-                     scale_to_fit = input$scale_to_fit,
-                     refresh_interval = refresh_interval,
-                     double_days = input$double_days,
-                     show_new = input$show_new,
-                     show_legend = input$show_legend)
-      })
-    # output$severityTable <- DT::renderDataTable({
-    #   loc_list
-    # })
-    output$downloadGlobalData <- downloadHandler(
-      filename = function() {
-        paste0("covid-global-comp-data-", Sys.Date(), ".csv")
-      },
-      content = function(file) {
-        write_csv(all_locs %>% genCompData(
-          geo_level = "location", min_thresh = input$min_thresh,
-          per_million = input$per_million, min_stat = input$min_stat), file)
-      }
-    )
-  }
+server <- function(input, output, session) {
+  #shinyjs::runjs("toggleCodePosition();")
+  # all_locs <- reactivePoll(
+  #   1000, NULL,
+  #   function() { (now() - file.info(data_file)$mtime) > refresh_interval },
+  #   function() { lazy_dt(fst::write_fst(fetchPrepGoogData(weekly = TRUE),
+  #                                       data_file), key_by = "location") })
+  updateSelectizeInput(session, 'location', choices = loc_list$location,
+                       selected = sample(
+                         loc_list$location, size = n_locs,
+                         prob = loc_list$severity),
+                       server = TRUE)
+  output$compPlot <- renderPlotly({
+    filter_locs <- all_locs %>%
+      filter(location %in% !!input$location) %>% collect()
+    if (nrow(filter_locs) == 0) {
+      return(plotly_empty())
+    }
+    filter_locs %>%
+      genPlotComps(geo_level = "location",
+                   min_thresh = input$min_thresh,
+                   per_million = input$per_million,
+                   min_stat = input$min_stat,
+                   max_days_since = input$max_days_since,
+                   smooth_plots = input$smooth_plots,
+                   scale_to_fit = input$scale_to_fit,
+                   double_days = input$double_days,
+                   show_new = input$show_new,
+                   show_legend = input$show_legend)
+    })
+  # output$severityTable <- DT::renderDataTable({
+  #   loc_list
+  # })
+  output$downloadGlobalData <- downloadHandler(
+    filename = function() {
+      paste0("covid-global-comp-data-", Sys.Date(), ".csv")
+    },
+    content = function(file) {
+      write_csv(all_locs() %>% genCompData(
+        geo_level = "location", min_thresh = input$min_thresh,
+        per_million = input$per_million, min_stat = input$min_stat), file)
+    }
+  )
+}
 
 shinyApp(ui = ui, server = server, enableBookmarking = "url")

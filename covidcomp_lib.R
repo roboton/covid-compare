@@ -107,7 +107,7 @@ compLabeller <- function(labels) {
 plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
                       max_days_since = 20, min_days_since = 3,
                       smooth_plots = TRUE, scale_to_fit = TRUE,
-                      per_million = TRUE, span = 0.5, double_days = FALSE,
+                      per_million = TRUE, span = 0.6, double_days = FALSE,
                       show_new = FALSE, show_legend = TRUE) {
   total_or_new = if (show_new) "new" else "total"
   df %>%
@@ -200,15 +200,8 @@ cleanPlotly <- function(p, smooth_plots = TRUE) {
 genPlotComps <- function(
   df, min_stat = "deaths", geo_level = "location", min_thresh = 1,
   max_days_since = 45, min_days_since = 3, smooth_plots = TRUE,
-  scale_to_fit = TRUE, per_million = TRUE, refresh_interval = hours(6),
+  scale_to_fit = TRUE, per_million = TRUE,
   double_days = TRUE, show_new= FALSE, show_legend = TRUE) {
-  
-  # refresh data after refresh_interval 
-  data_age <- as.period(now() - last_update)
-  if (data_age > refresh_interval) {
-    warning(paste("Refreshing data after", data_age))
-    refreshData()
-  }
   
   df %>% genCompData(geo_level = geo_level, min_thresh = min_thresh,
                      per_million = per_million, min_stat = min_stat) %>%
@@ -223,10 +216,4 @@ genPlotComps <- function(
       min_days_since = min_days_since, double_days = double_days,
       show_new= show_new, show_legend = show_legend) %>%
     cleanPlotly(smooth_plots = smooth_plots)
-}
-
-refreshData <- function() {
-  # global scope assignment
-  goog <<- fetchPrepGoogData()
-  last_update <<- now()
 }

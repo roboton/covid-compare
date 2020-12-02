@@ -55,6 +55,36 @@ Source: CRAN
 Version: 1.1.0
 Hash: 6935ba0d343d8901caf6b0a524749b4a
 
+Package: bslib
+Source: github
+Version: 0.2.3.9000
+Hash: 28c0532e30b99d32a291213e1927de39
+Requires: digest, htmltools, jquerylib, jsonlite, magrittr, rlang, sass
+GithubRepo: bslib
+GithubUsername: rstudio
+GithubRef: HEAD
+GithubSha1: 2682909b49428162ce2dedc212a19c5732d543bb
+RemoteHost: api.github.com
+RemoteRepo: bslib
+RemoteUsername: rstudio
+RemoteRef: HEAD
+RemoteSha: 2682909b49428162ce2dedc212a19c5732d543bb
+
+Package: cachem
+Source: github
+Version: 0.0.0.9000
+Hash: 81c6c24fb0114d3ffd8ec6a724020921
+Requires: fastmap, rlang
+GithubRepo: cachem
+GithubUsername: r-lib
+GithubRef: HEAD
+GithubSha1: a8e3ded1a719b441bfb2efa8916fc167060bacd4
+RemoteHost: api.github.com
+RemoteRepo: cachem
+RemoteUsername: r-lib
+RemoteRef: HEAD
+RemoteSha: a8e3ded1a719b441bfb2efa8916fc167060bacd4
+
 Package: callr
 Source: CRAN
 Version: 3.5.1
@@ -159,6 +189,11 @@ Source: CRAN
 Version: 1.0.1
 Hash: d272cd728e4095b3964181b44763f46c
 
+Package: fs
+Source: CRAN
+Version: 1.5.0
+Hash: 918ea5c88cad73d5d5b529ca98f8ad11
+
 Package: fst
 Source: CRAN
 Version: 0.9.4
@@ -198,10 +233,19 @@ Hash: 426b96bde4c9ed53f39888758ee53451
 Requires: pkgconfig, rlang, vctrs
 
 Package: htmltools
-Source: CRAN
-Version: 0.5.0
-Hash: 79070a001acba57f88692d17e859bac5
+Source: github
+Version: 0.5.0.9003
+Hash: b407b28434df4bba3143e18d61517bb8
 Requires: base64enc, digest, rlang
+GithubRepo: htmltools
+GithubUsername: rstudio
+GithubRef: HEAD
+GithubSha1: 636b95eaffb29ecdc17d2e63a7c5357dc9d7e063
+RemoteHost: api.github.com
+RemoteRepo: htmltools
+RemoteUsername: rstudio
+RemoteRef: HEAD
+RemoteSha: 636b95eaffb29ecdc17d2e63a7c5357dc9d7e063
 
 Package: htmlwidgets
 Source: github
@@ -235,6 +279,21 @@ Source: CRAN
 Version: 0.2.2
 Hash: c3e0b315984d7434c727a4ed885e89de
 Requires: testthat
+
+Package: jquerylib
+Source: github
+Version: 0.1.2
+Hash: b59ee98741ce3dc6dba03dfb3ad6f1de
+Requires: htmltools
+GithubRepo: jquerylib
+GithubUsername: rstudio
+GithubRef: HEAD
+GithubSha1: 3d45eb2e8efb885edf17ec07ebb31c6e87878484
+RemoteHost: api.github.com
+RemoteRepo: jquerylib
+RemoteUsername: rstudio
+RemoteRef: HEAD
+RemoteSha: 3d45eb2e8efb885edf17ec07ebb31c6e87878484
 
 Package: jsonlite
 Source: CRAN
@@ -361,10 +420,19 @@ Hash: 209280eb751acf5899f7c69366e14bd3
 Requires: R6, crayon, hms, prettyunits
 
 Package: promises
-Source: CRAN
-Version: 1.1.1
-Hash: 0f58aaef1b398b33f902cd50cb50d2d0
+Source: github
+Version: 1.1.1.9001
+Hash: 9fdac188b1027b5bb2cc9d776c825acd
 Requires: R6, Rcpp, later, magrittr, rlang
+GithubRepo: promises
+GithubUsername: rstudio
+GithubRef: HEAD
+GithubSha1: bbadb3d7dedfc052813bb66b4b1dcfebd5ff881a
+RemoteHost: api.github.com
+RemoteRepo: promises
+RemoteUsername: rstudio
+RemoteRef: HEAD
+RemoteSha: bbadb3d7dedfc052813bb66b4b1dcfebd5ff881a
 
 Package: ps
 Source: CRAN
@@ -377,6 +445,11 @@ Version: 0.3.4
 Hash: fb4c0edca61826ca0b5b33c828a7b276
 Requires: magrittr, rlang
 
+Package: rappdirs
+Source: CRAN
+Version: 0.3.1
+Hash: 7340cfebc77ad7b107a549a8635e64dd
+
 Package: rematch2
 Source: CRAN
 Version: 2.1.2
@@ -384,9 +457,18 @@ Hash: b6823f74d6525d39d153620d21e206df
 Requires: tibble
 
 Package: rlang
-Source: CRAN
-Version: 0.4.9
-Hash: ae313ae34e2f40b6d8be5ede38c65c6b
+Source: github
+Version: 0.4.9.9000
+Hash: d4ed367a48bf18bb2fc27320ecf888e6
+GithubRepo: rlang
+GithubUsername: r-lib
+GithubRef: HEAD
+GithubSha1: 54e2cfa287baa77a44fcc0b9be6dfa894d580df0
+RemoteHost: api.github.com
+RemoteRepo: rlang
+RemoteUsername: r-lib
+RemoteRef: HEAD
+RemoteSha: 54e2cfa287baa77a44fcc0b9be6dfa894d580df0
 
 Package: rprojroot
 Source: CRAN
@@ -398,6 +480,21 @@ Source: CRAN
 Version: 0.13
 Hash: dab1619920bed1f1660a3d48e4f7cc7f
 
+Package: sass
+Source: github
+Version: 0.2.0.9005
+Hash: 6bd946fc84cfb33e64891c1b74c422ea
+Requires: R6, digest, fs, htmltools, rappdirs, rlang
+GithubRepo: sass
+GithubUsername: rstudio
+GithubRef: HEAD
+GithubSha1: 1dda864c433d6d04327dbdc633eb88bbc30ee1b4
+RemoteHost: api.github.com
+RemoteRepo: sass
+RemoteUsername: rstudio
+RemoteRef: HEAD
+RemoteSha: 1dda864c433d6d04327dbdc633eb88bbc30ee1b4
+
 Package: scales
 Source: CRAN
 Version: 1.1.1
@@ -406,24 +503,27 @@ Requires: R6, RColorBrewer, farver, labeling, lifecycle, munsell,
     viridisLite
 
 Package: shiny
-Source: CRAN
-Version: 1.5.0
-Hash: c6e7eb15d6cd1f0f21b6afe871d6e106
-Requires: R6, commonmark, crayon, digest, fastmap, glue, htmltools,
-    httpuv, jsonlite, later, mime, promises, rlang, sourcetools, withr,
-    xtable
+Source: github
+Version: 1.5.0.9005
+Hash: c2e9e2f64f17d9faca7cae84b4e1105f
+Requires: R6, bslib, cachem, commonmark, crayon, digest, ellipsis,
+    fastmap, glue, htmltools, httpuv, jsonlite, later, mime, promises,
+    rlang, sourcetools, withr, xtable
+GithubRepo: shiny
+GithubUsername: rstudio
+GithubRef: HEAD
+GithubSha1: bde5a8829558c1f281647ac1c0c7c9d5b6ae2fcf
+RemoteHost: api.github.com
+RemoteRepo: shiny
+RemoteUsername: rstudio
+RemoteRef: HEAD
+RemoteSha: bde5a8829558c1f281647ac1c0c7c9d5b6ae2fcf
 
 Package: shinybusy
 Source: CRAN
 Version: 0.2.2
 Hash: b021a5ee5b9d94dbf2d9ab0651f5915b
 Requires: htmltools, htmlwidgets, jsonlite, shiny
-
-Package: shinyjs
-Source: CRAN
-Version: 2.0.0
-Hash: 76cd028f38d0c5a1f198c4daab81ddfe
-Requires: digest, htmltools, jsonlite, shiny
 
 Package: sourcetools
 Source: CRAN
