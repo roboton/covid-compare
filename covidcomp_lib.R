@@ -29,10 +29,14 @@ fetchPrepGoogData <- function(min_deaths = 1, min_cases = 10, weekly = FALSE) {
     { if(weekly) {
       mutate(., date = floor_date(date, "week")) %>%
         group_by(date, location) %>%
-        summarise(across(c(-population), sum, na.rm = TRUE),
-                  across(population, mean, na.rm = TRUE),
-                  num_dates = n(), .groups = "drop") %>%
-        filter(num_dates == 7) %>% select(-num_dates)
+        summarise(
+          across(c(-population),
+                 ~ if_else(any(!is.na(.x)), sum(.x, na.rm = TRUE), NA_real_)),
+          across(population, mean, na.rm = TRUE),
+          num_dates = n(),
+          .groups = "drop") %>%
+        filter(num_dates == 7 & is.finite(population)) %>%
+        select(-num_dates)
       } else . } %>%
     mutate(#negative_tests = total_tests - confirmed,
            case_fatality_rate = deaths / confirmed,

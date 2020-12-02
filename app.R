@@ -7,7 +7,7 @@ min_global <- 5
 refresh_interval <- hours(24)
 
 # pull in data
-all_locs <- lazy_dt(fst::read_fst("data/goog_week.fst"), key_by = "location")
+all_locs <- lazy_dt(fst::read_fst("data/goog_weekly.fst"), key_by = "location")
 
 n_locs <- 5
 loc_list <- all_locs %>% filter(stat == "deaths") %>%
