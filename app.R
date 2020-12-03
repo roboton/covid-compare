@@ -171,15 +171,10 @@ server <- function(input, output, session) {
     }
   }, once = TRUE)
   
-  # slim down bookmark url
-  input_include <- c("location", "min_stat", "min_thresh", "per_million",
-                     "max_days_since", "smooth_plots", #"scale_to_fit",
-                     "double_days", "show_new", "show_legend")
-  input_exclude <- reactiveVal(value = NULL)
-  observe({
-    to_exclude <- setdiff(names(input), input_include)
-    setBookmarkExclude(to_exclude)
-    input_exclude(to_exclude)
+  # shorten bookmark url
+  session$onBookmarked(function(url) {
+    short_url <- urlshorteneR::isgd_LinksShorten(longUrl = url)
+    showBookmarkUrlModal(short_url)
   })
   
   # update min_stat metric
@@ -191,13 +186,6 @@ server <- function(input, output, session) {
                        label = paste("days since initial number of",
                                      stat_label, ":"))
   })  
-  
-  # remove legend for mobile
-  # is_mobile <- str_detect(session$request$HTTP_USER_AGENT, "iPhone|Android")
-  # if (is_mobile) {
-  #   updateCheckboxInput(session, "show_legend", value = FALSE)
-  #   updateCheckboxInput(session, "double_days", value = FALSE)
-  # }
 }
 
 shinyApp(ui = ui, server = server, enableBookmarking = "url")
