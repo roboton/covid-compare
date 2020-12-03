@@ -63,7 +63,7 @@ ui <- function(request) {
         # checkboxInput("scale_to_fit",
         #               "Scale to fit", value = TRUE),
         checkboxInput("double_days",
-                      "Show double days", value = TRUE),
+                      "Show double days", value = FALSE),
         checkboxInput("show_legend",
                       "Show legend", value = TRUE),
         checkboxInput("show_new",
@@ -115,6 +115,7 @@ ui <- function(request) {
 } 
    
 server <- function(input, output, session) {
+  
   output$compPlot <- renderPlotly({
     filter_locs <- all_locs %>%
       filter(location %in% !!input$location) %>% collect()
@@ -132,10 +133,12 @@ server <- function(input, output, session) {
                    double_days = input$double_days,
                    show_new = input$show_new,
                    show_legend = input$show_legend)
-    })
+    } %>% plotly::partial_bundle())
+  
   output$severityTable <- DT::renderDataTable({
     loc_list %>% arrange(-severity_popM)
   })
+  
   output$downloadGlobalData <- downloadHandler(
     filename = function() {
       paste0("covid-global-comp-data-", Sys.Date(), ".csv")
@@ -146,12 +149,11 @@ server <- function(input, output, session) {
     }
   )
   
-  
-  
   # server side location selectize
   updateSelectizeInput(session, "location", choices = loc_list$location,
                        server = TRUE)
-  # ensure we don't overwrite restore locations with defaults
+  
+  # ensure we don't overwrite bookmark locations with default
   session$onRestore(function(state) {
     session$userData$restored <- TRUE
     updateSelectizeInput(session, "location", choices = loc_list$location,
@@ -174,7 +176,6 @@ server <- function(input, output, session) {
                      "max_days_since", "smooth_plots", #"scale_to_fit",
                      "double_days", "show_new", "show_legend")
   input_exclude <- reactiveVal(value = NULL)
-  
   observe({
     to_exclude <- setdiff(names(input), input_include)
     setBookmarkExclude(to_exclude)
@@ -190,11 +191,13 @@ server <- function(input, output, session) {
                        label = paste("days since initial number of",
                                      stat_label, ":"))
   })  
+  
   # remove legend for mobile
-  is_mobile <- str_detect(session$request$HTTP_USER_AGENT, "iPhone|Android")
-  if (is_mobile) {
-    updateCheckboxInput(session, "show_legend", value = FALSE)
-  }
+  # is_mobile <- str_detect(session$request$HTTP_USER_AGENT, "iPhone|Android")
+  # if (is_mobile) {
+  #   updateCheckboxInput(session, "show_legend", value = FALSE)
+  #   updateCheckboxInput(session, "double_days", value = FALSE)
+  # }
 }
 
 shinyApp(ui = ui, server = server, enableBookmarking = "url")

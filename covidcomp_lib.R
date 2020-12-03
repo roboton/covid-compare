@@ -56,7 +56,8 @@ fetchPrepGoogData <- function(min_deaths = 1, min_cases = 10, weekly = FALSE) {
 
 # plot comps function
 genCompData <- function(df, geo_level = NA, min_stat = "deaths",
-                        min_thresh = NA, per_million = TRUE) {
+                        min_thresh = NA, per_million = TRUE,
+                        double_days = FALSE) {
   
   stat_col <- {if (per_million) "popM" else "total"}
   if (is.na(min_thresh)) {
@@ -80,19 +81,25 @@ genCompData <- function(df, geo_level = NA, min_stat = "deaths",
     # recenter dates
     mutate(days_since = as.numeric(date - first_date)) %>%
     ungroup() %>%
-    # calculate double_days
-    group_by(location, stat) %>% arrange(date) %>%
-    mutate(
-      half_date = date[sapply(1:length(!!sym(stat_col)), FUN = function(i) {
-        if(any((!!sym(stat_col))[1:i] <= (!!sym(stat_col))[i]/2)) {
-          max(which((!!sym(stat_col))[1:i] <=
-                      (!!sym(stat_col))[i]/2), na.rm = TRUE)
-        } else {
-          NA_Date_
-        }})],
-      double_days = as.numeric(date - half_date)) %>%
-    ungroup() %>%
-    gather(value_type, value, !!sym(stat_col), double_days)
+    {
+      if (double_days) {
+        # calculate double_days
+        group_by(., location, stat) %>% arrange(date) %>%
+        mutate(
+          half_date = date[sapply(1:length(!!sym(stat_col)), FUN = function(i) {
+            if(any((!!sym(stat_col))[1:i] <= (!!sym(stat_col))[i]/2)) {
+              max(which((!!sym(stat_col))[1:i] <=
+                          (!!sym(stat_col))[i]/2), na.rm = TRUE)
+            } else {
+              NA_Date_
+            }})],
+          double_days = as.numeric(date - half_date)) %>%
+        ungroup() %>%
+        gather(value_type, value, !!sym(stat_col), double_days)
+      } else {
+        gather(., value_type, value, !!sym(stat_col))
+      }
+   }
 }
 
 compLabeller <- function(labels) {
@@ -111,7 +118,7 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
                       show_new = FALSE, show_legend = TRUE) {
   total_or_new = if (show_new) "new" else "total"
   df %>%
-    { if (!double_days) filter(., value_type != "double_days") else . } %>%
+    #{ if (!double_days) filter(., value_type != "double_days") else . } %>%
     # lazy filter for erroneous data
     filter(value >= 0) %>%
     # truncate days_since
@@ -204,7 +211,8 @@ genPlotComps <- function(
   double_days = TRUE, show_new= FALSE, show_legend = TRUE) {
   
   df %>% genCompData(geo_level = geo_level, min_thresh = min_thresh,
-                     per_million = per_million, min_stat = min_stat) %>%
+                     per_million = per_million, min_stat = min_stat,
+                     double_days = double_days) %>%
     # filter plots
     filter(!stat %in% c("negative", "pending")) %>%
     filter(!(str_ends(stat, "_rate") & value_type == "double_days")) %>%
