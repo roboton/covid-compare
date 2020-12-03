@@ -58,16 +58,16 @@ ui <- function(request) {
                      "days since initial number of deaths:", min = 0,
                      value = 360),
         # plot options
-        checkboxInput("smooth_plots",
-                      "Smooth plot values", value = TRUE), 
-        # checkboxInput("scale_to_fit",
-        #               "Scale to fit", value = TRUE),
-        checkboxInput("double_days",
-                      "Show double days", value = FALSE),
         checkboxInput("show_legend",
                       "Show legend", value = TRUE),
+        checkboxInput("smooth_plots",
+                      "Smooth plot values", value = FALSE), 
         checkboxInput("show_new",
                       "Show new", value = FALSE),
+        checkboxInput("double_days",
+                      "Show double days", value = FALSE),
+        # checkboxInput("scale_to_fit",
+        #               "Scale to fit", value = TRUE),
         width = 2),
       mainPanel(
         tabsetPanel(
