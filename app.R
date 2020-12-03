@@ -8,6 +8,8 @@ refresh_interval <- hours(24)
 data_file <- "data/goog_weekly.fst"
 last_update <- file.info(data_file)$mtime
 n_locs <- 3
+compare_metrics <- c("deaths" = "deaths", "cases" = "confirmed",
+                     "tests" = "total_tests")
 
 # pull in data
 all_locs <- lazy_dt(fst::read_fst(data_file), key_by = "location")
@@ -47,27 +49,25 @@ ui <- function(request) {
           "location", "Location", choices = NULL, multiple = TRUE,
           options = list(placeholder = 'type to select a location')),
         bookmarkButton(),
-        selectInput("min_stat", "metric to compare by:",
-                    c("Deaths" = "deaths", "Confirmed cases" = "confirmed")),
+        selectInput("min_stat", "metric to compare by:", compare_metrics),
         numericInput("min_thresh",
-                     "initial number of deaths/cases:",
-                     min = 0, value = min_global),
+                     "initial number of deaths:", min = 0, value = min_global),
         checkboxInput("per_million",
                       "Counts per million people", value = TRUE),
         numericInput("max_days_since",
-                     "days since initial number of deaths/cases:",
-                     min = 0, value = 360),
+                     "days since initial number of deaths:", min = 0,
+                     value = 360),
         # plot options
         checkboxInput("smooth_plots",
                       "Smooth plot values", value = TRUE), 
-        checkboxInput("scale_to_fit",
-                      "Scale to fit", value = TRUE),
+        # checkboxInput("scale_to_fit",
+        #               "Scale to fit", value = TRUE),
         checkboxInput("double_days",
                       "Show double days", value = TRUE),
-        checkboxInput("show_new",
-                      "Show new", value = FALSE),
         checkboxInput("show_legend",
                       "Show legend", value = TRUE),
+        checkboxInput("show_new",
+                      "Show new", value = FALSE),
         width = 2),
       mainPanel(
         tabsetPanel(
@@ -128,7 +128,7 @@ server <- function(input, output, session) {
                    min_stat = input$min_stat,
                    max_days_since = input$max_days_since,
                    smooth_plots = input$smooth_plots,
-                   scale_to_fit = input$scale_to_fit,
+                   scale_to_fit = TRUE, #input$scale_to_fit,
                    double_days = input$double_days,
                    show_new = input$show_new,
                    show_legend = input$show_legend)
@@ -171,7 +171,7 @@ server <- function(input, output, session) {
   
   # slim down bookmark url
   input_include <- c("location", "min_stat", "min_thresh", "per_million",
-                     "max_days_since", "smooth_plots", "scale_to_fit",
+                     "max_days_since", "smooth_plots", #"scale_to_fit",
                      "double_days", "show_new", "show_legend")
   input_exclude <- reactiveVal(value = NULL)
   
@@ -180,6 +180,21 @@ server <- function(input, output, session) {
     setBookmarkExclude(to_exclude)
     input_exclude(to_exclude)
   })
+  
+  # update min_stat metric
+  observeEvent(input$min_stat, {
+    stat_label <- names(compare_metrics)[compare_metrics == input$min_stat]
+    updateSelectInput(session, "min_thresh",
+                      label = paste0("initial number of ", stat_label, ":"))
+    updateNumericInput(session, "max_days_since",
+                       label = paste("days since initial number of",
+                                     stat_label, ":"))
+  })  
+  # remove legend for mobile
+  is_mobile <- str_detect(session$request$HTTP_USER_AGENT, "iPhone|Android")
+  if (is_mobile) {
+    updateCheckboxInput(session, "show_legend", value = FALSE)
+  }
 }
 
 shinyApp(ui = ui, server = server, enableBookmarking = "url")
