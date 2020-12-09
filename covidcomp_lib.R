@@ -7,155 +7,148 @@ library(lubridate, warn.conflicts = FALSE)
 library(ggplot2)
 library(plotly, warn.conflicts = FALSE)
 
+# Helpers
+nday_rolling_mean <- function(value, n = 7) {
+  #assertthat::are_equal(length(date), length(value))
+  map_dbl(1:length(value), function(i) {
+    mean(value[max(1, i - (n - 1)):i], na.rm = TRUE)
+  }) 
+}
+
 # Generate source data
-fetchPrepGoogData <- function(min_deaths = 1, min_cases = 10, weekly = FALSE) {
+fetchPrepGoogData <- function(min_deaths = 1, min_cases = 10,
+                              period = "daily") {
   vroom::vroom(
     "https://storage.googleapis.com/covid19-open-data/v2/main.csv",
-    col_select = c(date, key, confirmed = total_confirmed,
-                   hospitalized = total_hospitalized,
-                   icu = total_intensive_care,
-                   deaths = total_deceased, total_tests = total_tested,
-                   population, locality_name, subregion2_name,
-                   subregion1_name, country_name),
-    col_types = c(key = "c", total_confirmed = "n", total_deceased = "n",
-                  total_tested = "n", total_hospitalized = "n",
-                  population = "n", total_intensive_care = "n", date = "D",
-                  locality_name = "c", subregion2_name = "c",
-                  subregion1_name = "c", country_name = "c"),
+    col_select = c(date, key,
+                   total_tested,
+                   total_confirmed,
+                   total_hospitalized,
+                   total_intensive_care,
+                   total_deceased,
+                   new_tested,
+                   new_confirmed,
+                   new_hospitalized,
+                   new_intensive_care,
+                   new_deceased,
+                   population,
+                   locality_name,
+                   subregion2_name,
+                   subregion1_name,
+                   country_name),
+
+    col_types = c(date = "D", key = "c",
+                  total_tested = "n",
+                  total_confirmed = "n",
+                  total_hospitalized = "n",
+                  total_intensive_care = "n",
+                  total_deceased = "n",
+                  new_tested = "n",
+                  new_confirmed = "n",
+                  new_hospitalized = "n",
+                  new_intensive_care = "n",
+                  new_deceased = "n",
+                  population = "n",
+                  locality_name = "c",
+                  subregion2_name = "c",
+                  subregion1_name = "c",
+                  country_name = "c"),
     num_threads = 16) %>%
+    # create name
     unite(name, ends_with("_name"), sep = ", ", na.rm = TRUE) %>%
-    mutate(key = str_replace(key, "^.*_", "")) %>%
+    # append most granular identifier 
+    mutate(key = str_remove(key, "^.*_")) %>%
     unite(location, name, key, sep = " ") %>%
-    { if(weekly) {
+    mutate(location = as.factor(location)) %>%
+    # compute weekly stats
+    { if (period == "weekly") {
       mutate(., date = floor_date(date, "week")) %>%
-        group_by(date, location) %>%
+        group_by(location, date) %>%
+        arrange(location, date) %>%
         summarise(
-          across(c(-population),
+          across(starts_with("total_"), last),
+          across(starts_with("new_"),
                  ~ if_else(any(!is.na(.x)), sum(.x, na.rm = TRUE), NA_real_)),
-          across(population, mean, na.rm = TRUE),
+          across(population,
+                 ~ if_else(any(!is.na(.x)), mean(.x, na.rm = TRUE), NA_real_)),
           num_dates = n(),
           .groups = "drop") %>%
+        # drop partial weeks
         filter(num_dates == 7 & is.finite(population)) %>%
         select(-num_dates)
       } else . } %>%
-    mutate(#negative_tests = total_tests - confirmed,
-           case_fatality_rate = deaths / confirmed,
-           positive_test_rate = confirmed / total_tests) %>%
-    #filter(case_fatality_rate < 1 & positive_test_rate < 1) %>%
+    mutate(
+      # population adjusted
+      across(c(starts_with("total_"), starts_with("new_")),
+             ~ .x / population * 1e6)) %>%
     pivot_longer(c(-date, -location, -population),
-                 names_to = "stat", values_to = "total") %>%
-    mutate(popM = if_else(
-      !str_ends(stat, "_rate"), total / population * 1e6, total)) %>%
-    filter(is.finite(total) & is.finite(popM) & !is.na(location)) %>%
-    select(-population) %>%
-    group_by(location) %>%
-    filter(any(stat == "deaths" & (!is.nan(popM) & popM >= min_deaths)) &
-             any(stat == "confirmed" & (!is.nan(popM) & popM >= min_cases))) %>%
+                 names_to = "stat", values_to = "value") %>%
+    mutate(stat = as.factor(stat)) %>%
+    filter(is.finite(value) & !is.na(location)) %>%
     ungroup()
 }
 
 # plot comps function
-genCompData <- function(df, geo_level = NA, min_stat = "deaths",
-                        min_thresh = NA, per_million = TRUE,
-                        double_days = FALSE) {
-  
-  stat_col <- {if (per_million) "popM" else "total"}
-  if (is.na(min_thresh)) {
-    min_thresh <- {if (per_million) 1 else 10}
-  } 
- 
+genCompData <- function(df, min_stat = "total_deceased",
+                        min_thresh = 1, per_million = TRUE) {
+  stats_available <- df %>% pull(stat) %>% unique() %>%
+    str_split(pattern = "_", simplify = TRUE, n = 2) %>% .[,2] %>% unique()
   df %>%
-    rename(location = all_of(geo_level)) %>%
-    # get max_total and first_date per location/stat
-    group_by(location, stat) %>%
-    mutate(max_total = max(!!sym(stat_col), na.rm = TRUE),
-           first_date = ifelse(
-             stat == min_stat & any(!!sym(stat_col) >= min_thresh),
-             min(date[!!sym(stat_col) >= min_thresh]),
-             NA_Date_)) %>%
     group_by(location) %>%
-    mutate(first_date = first(na.omit(first_date))) %>%
-    # drop earlier dates
-    filter(any(!is.na(first_date)) & min_stat %in% stat &
-             date >= first(first_date)) %>%
-    # recenter dates
-    mutate(days_since = as.numeric(date - first_date)) %>%
+    mutate(first_date =
+             first(na.omit(date[stat == min_stat & value > min_thresh]))) %>%
     ungroup() %>%
-    {
-      if (double_days) {
-        # calculate double_days
-        group_by(., location, stat) %>% arrange(date) %>%
-        mutate(
-          half_date = date[sapply(1:length(!!sym(stat_col)), FUN = function(i) {
-            if(any((!!sym(stat_col))[1:i] <= (!!sym(stat_col))[i]/2)) {
-              max(which((!!sym(stat_col))[1:i] <=
-                          (!!sym(stat_col))[i]/2), na.rm = TRUE)
-            } else {
-              NA_Date_
-            }})],
-          double_days = as.numeric(date - half_date)) %>%
-        ungroup() %>%
-        gather(value_type, value, !!sym(stat_col), double_days)
-      } else {
-        gather(., value_type, value, !!sym(stat_col))
-      }
-   }
+    filter(date >= first_date) %>%
+    mutate(days_since = as.numeric(date - first_date)) %>%
+    { if(!per_million) mutate(., value = value * population / 1e6) else . } %>%
+    separate(stat, c("value_type", "stat"), sep = "_", extra = "merge") %>%
+    select(-population, -first_date) %>%
+    # rate calcs
+    pivot_wider(names_from = stat, values_from = value) %>%
+    group_by(location) %>%
+    { if("deceased" %in% stats_available && "confirmed" %in% stats_available)
+      mutate(., case_fatality_rate = deceased / confirmed) else . } %>%
+    { if("confirmed" %in% stats_available && "tested" %in% stats_available)
+      mutate(., positive_test_rate = confirmed / tested) else . } %>%
+    { if("hospitalized" %in% stats_available && "confirmed" %in% stats_available)
+      mutate(., case_hosp_rate = hospitalized / confirmed) else . } %>%
+    { if("intensive_care" %in% stats_available && "confirmed" %in% stats_available)
+      mutate(., hosp_icu_rate = intensive_care / hospitalized) else . } %>%
+    { if("deceased" %in% stats_available && "hospitalized" %in% stats_available)
+      mutate(., hosp_fatality_rate = deceased / hospitalized) else . } %>%
+    { if("deceased" %in% stats_available && "intensive_care" %in% stats_available)
+      mutate(., icu_fatality_rate = deceased / intensive_care) else . } %>%
+    pivot_longer(c(-location, -date, -value_type, -days_since),
+                 names_to = "stat", values_to = "value")
 }
 
-compLabeller <- function(labels) {
-  if (nrow(labels) > 0 & ncol(labels) > 0) {
-    labels <- labels %>% mutate_if(is.factor, as.character) %>%
-      mutate(value_type = if_else(
-        str_ends(stat, " rate"), "", value_type))
-  }
-  return(labels)
-}
-
-plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
-                      max_days_since = 20, min_days_since = 3,
-                      smooth_plots = TRUE, scale_to_fit = TRUE,
-                      per_million = TRUE, span = 0.6, double_days = FALSE,
-                      show_new = FALSE, show_legend = TRUE) {
-  total_or_new = if (show_new) "new" else "total"
+plotComps <- function(df, min_stat = "total_deceased", min_thresh = 1,
+                      max_days_since = 365,
+                      smooth_plots = FALSE,
+                      span = 0.5,
+                      per_million = TRUE,
+                      show_legend = TRUE) {
+  per_million_label <- { if (per_million) "per million people" else "" }
   df %>%
-    #{ if (!double_days) filter(., value_type != "double_days") else . } %>%
-    # lazy filter for erroneous data
-    filter(value >= 0) %>%
     # truncate days_since
     filter(days_since <= max_days_since) %>%
-    # filter not enough points
-    group_by(location, stat, value_type) %>%
-    filter( n() >= min_days_since) %>%
-    { if (show_new) mutate(., value = if_else(
-      value_type != "double_days" & !str_ends(value_type, "_rate"),
-      value - lag(value), value)) else . } %>%
-    ungroup() %>%
     # order plots and readable labels
     mutate(
       value_type = factor(value_type,
-                          levels = c("total", "popM", "double_days"),
-                          labels = c(paste(total_or_new, "count"),
-                                     paste(total_or_new,
-                                           "count per million people"),
-                                     "Days to double total count")),
-      stat = factor(stat, levels = c("deaths", "confirmed",
-                                     "active", "recovered",
-                                     "total_tests",
-                                     "negative_tests", "pending_tests",
-                                     "hospitalized", "icu",
-                                     "case_fatality_rate",
-                                     "case_recovery_rate",
-                                     "positive_test_rate",
-                                     "hospitalization_rate",
-                                     "hospitalization_death_rate"),
-                    labels = c("Deaths", "Confirmed cases",
-                               "Active cases", "Recovered cases",
-                               "Tests",
-                               "Negative tests", "Pending tests",
+                          levels = c("total", "new"),
+                          labels = c(paste("total count", per_million_label),
+                                     paste("new count", per_million_label))),
+      stat = factor(stat,
+                    levels = c("deceased", "confirmed", "tested",
+                               "case_fatality_rate", "positive_test_rate",
+                               "hospitalized", "intensive_care",
+                               "case_hosp_rate", "hosp_icu_rate",
+                               "hosp_fatality_rate", "icu_fatality_rate"),
+                    labels = c("Deaths", "Confirmed cases", "Tests",
+                               "Case fatality rate", "Positive test rate",
                                "Hospitalized", "Intensive Care",
-                               "Case fatality rate", "Case recovery rate",
-                               "Positive test rate", "Hospitalization rate",
-                               "Death/Hosp. rate"))) %>%
+                               "Hospitalization rate", "ICU rate",
+                               "Hosp. fatality rate", "ICU fatality rate"))) %>%
     # plot begins
     ggplot(aes(days_since, value, color = location, label = date)) +
     scale_x_continuous() + 
@@ -166,10 +159,8 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
     {if (smooth_plots) geom_line(stat = "smooth", method = "loess", span = span,
                                  alpha = 0.8, formula = y ~ x)} +
     # .multi_line false doesn't work with ggplotly
-    facet_wrap(vars(stat, value_type), ncol = { if (double_days) 2 else 1 },
-               scales = {if (scale_to_fit) "free_y" else "fixed"},
-               #labeller = labeller(.multi_line = TRUE)) +
-               labeller = compLabeller) +
+    facet_wrap(vars(stat, value_type), ncol = 2, scales = "free_y",
+               labeller = labeller(.multi_line = TRUE)) +
     # labelling
     xlab(paste0("Days since ", min_stat,
                 {if (per_million) " per million people " else ""}, " >= ",
@@ -178,50 +169,54 @@ plotComps <- function(df, min_stat = "deaths", min_thresh = 10,
     theme_minimal() +
     theme(legend.title = element_blank(), axis.title.y = element_blank(),
           plot.title = element_text(hjust = 0.5)) +
-    {if (!show_legend) theme(legend.position = "none") } +
-    ylim(0, NA)
+    {if (!show_legend) theme(legend.position = "none") }
 }
 
-cleanPlotly <- function(p, smooth_plots = TRUE) {
-  gp <- ggplotly(p)
-  # compare on mouse over
-  gp$x$layout$hovermode <- "x unified"
-  gp$x$layout$font <- list(size = 12)
+cleanPlotly <- function(p) {
+  gp <- ggplotly(p) %>%
+    layout(hovermode = "x unified", font = list(size = 12))
+  # # compare on mouse over
+  # gp$x$layout$hovermode <- "x unified"
+  # gp$x$layout$font <- list(size = 12)
   # auto scale y-axes (modify in-place)
-  sapply(names(gp$x$layout), FUN = function(x) {
-    if (startsWith(x, "yaxis")) { gp$x$layout[[x]]$autorange <<- TRUE }
-  })
-  # edit data properties (edit and copy)
-  gp$x$data <- lapply(gp$x$data, FUN = function(x) {
-    # only remove line hover over text if we're smoothing plots
-    if (x$mode == "lines" && smooth_plots) {
-      x$hoverinfo <- "none"
-      x$text <- NA
-    }
-
-    return(x)
-  })
+  # sapply(names(gp$x$layout), FUN = function(x) {
+  #   if (startsWith(x, "yaxis")) { gp$x$layout[[x]]$autorange <<- TRUE }
+  # })
+  # # edit data properties (edit and copy)
+  # gp$x$data <- lapply(gp$x$data, FUN = function(x) {
+  #   # only remove line hover over text if we're smoothing plots
+  #   if (x$mode == "lines" && smooth_plots) {
+  #     x$hoverinfo <- "none"
+  #     x$text <- NA
+  #   }
+  # 
+  #   return(x)
+  # })
   return(gp)
 }
 
 genPlotComps <- function(
-  df, min_stat = "deaths", geo_level = "location", min_thresh = 1,
-  max_days_since = 45, min_days_since = 3, smooth_plots = TRUE,
-  scale_to_fit = TRUE, per_million = TRUE,
-  double_days = TRUE, show_new= FALSE, show_legend = TRUE) {
+  df, min_stat = "total_deceased", min_thresh = 1,
+  max_days_since = 365, smooth_plots = FALSE,
+  per_million = TRUE,
+  show_legend = TRUE,
+  plot_type = "epi") {
   
-  df %>% genCompData(geo_level = geo_level, min_thresh = min_thresh,
-                     per_million = per_million, min_stat = min_stat,
-                     double_days = double_days) %>%
-    # filter plots
-    filter(!stat %in% c("negative", "pending")) %>%
-    filter(!(str_ends(stat, "_rate") & value_type == "double_days")) %>%
-    # plot!
+  epi_stats <- c("deceased", "confirmed", "tested", "case_fatality_rate",
+                 "positive_test_rate")
+  hosp_stats <- c("hospitalized", "intensive_care", "case_hosp_rate",
+                  "hosp_icu_rate", "hosp_fatality_rate", "icu_fatality_rate")
+  
+  df %>% genCompData(
+    min_thresh = min_thresh, per_million = per_million,
+                     min_stat = min_stat) %>%
+    { if (plot_type == "epi") filter(., stat %in% epi_stats) else . } %>%
+    { if (plot_type == "hosp") filter(., stat %in% hosp_stats) else . } %>%
     plotComps(
-      min_thresh = min_thresh, max_days_since = max_days_since,
-      smooth_plots = smooth_plots, min_stat = min_stat,
-      scale_to_fit = scale_to_fit, per_million = per_million,
-      min_days_since = min_days_since, double_days = double_days,
-      show_new= show_new, show_legend = show_legend) %>%
-    cleanPlotly(smooth_plots = smooth_plots)
+      min_thresh = min_thresh,
+      smooth_plots = smooth_plots,
+     min_stat = min_stat,
+      per_million = per_million,
+      show_legend = show_legend) %>%
+    cleanPlotly()
 }

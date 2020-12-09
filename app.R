@@ -3,27 +3,29 @@ library(shiny)
 source("covidcomp_lib.R", local = TRUE)
 
 # set up global params
-min_global <- 5
+min_global <- 1
 refresh_interval <- hours(24)
 data_file <- "data/goog_weekly.fst"
 last_update <- file.info(data_file)$mtime
 n_locs <- 3
-compare_metrics <- c("deaths" = "deaths", "cases" = "confirmed",
-                     "tests" = "total_tests")
 
 # pull in data
 all_locs <- lazy_dt(fst::read_fst(data_file), key_by = "location")
-loc_list <- all_locs %>% filter(stat == "deaths") %>%
+loc_list <- all_locs %>% filter(stat == "new_deceased") %>%
   group_by(location) %>%
-  arrange(location, -date) %>%
+  arrange(location, date) %>%
   summarise(
-    severity_popM = first(popM) - nth(popM, 2),
-    severity_total = first(total) - nth(total, 2)) %>%
+    severity_popM = last(value),
+    severity_total = last(value) * last(population) / 1e6) %>%
   ungroup() %>%
   filter(is.finite(severity_total) & severity_total > 0) %>%
   mutate(level = str_count(location, ",")) %>%
+         #location = as.character(location)) %>%
   arrange(level) %>% select(-level) %>%
-  collect()
+  as_tibble()
+
+compare_metrics <- c("deaths" = "total_deceased", "cases" = "total_confirmed",
+                     "tests" = "total_tested")
 
 # control over mouse over values in plotly plot
 options(scipen = 999, digits = 1)
@@ -31,7 +33,7 @@ options(scipen = 999, digits = 1)
 ui <- function(request) {
   fluidPage(
     #shinyjs::useShinyjs(), # for moving showcase code to the bottom
-    shinybusy::add_busy_bar(color = "CornflowerBlue", timeout = 1000),
+    shinybusy::add_busy_bar(color = "CornflowerBlue", timeout = 500),
     titlePanel("Covid-19 comparisons"),
     tags$a(
       href = "https://github.com/roboton/covid-compare",
@@ -56,27 +58,27 @@ ui <- function(request) {
                       "Counts per million people", value = TRUE),
         numericInput("max_days_since",
                      "days since initial number of deaths:", min = 0,
-                     value = 360),
+                     value = 365),
         # plot options
         checkboxInput("show_legend",
                       "Show legend", value = TRUE),
         checkboxInput("smooth_plots",
                       "Smooth plot values", value = FALSE), 
-        checkboxInput("show_new",
-                      "Show new", value = FALSE),
-        checkboxInput("double_days",
-                      "Show double days", value = FALSE),
-        # checkboxInput("scale_to_fit",
-        #               "Scale to fit", value = TRUE),
         width = 2),
       mainPanel(
         tabsetPanel(
           id = "plotTabs", type = "tabs",
           tabPanel(
-            "Plots", value = "plots",
+            "Epidemiology", value = "epi_plots",
             plotlyOutput(
-              "compPlot", width = "100%", height = "1400px"),
-              downloadButton("downloadGlobalData", "download data (csv)")
+              "epiPlot", width = "100%", height = "1400px"),
+              downloadButton("downloadEpiData", "download data (csv)")
+          ),
+          tabPanel(
+            "Hospitalization", value = "hosp_plots",
+            plotlyOutput(
+              "hospPlot", width = "100%", height = "1400px"),
+              downloadButton("downloadHospData", "download data (csv)")
           ),
           tabPanel(
             "Severity", value = "severity",
@@ -99,7 +101,6 @@ ui <- function(request) {
             p("Double click that location from the legend on the right hand side."),
             h4("When I unclick a location, the plot moves. Why does that happen?"),
             p("The y-axis scales to the minimum and maximum values displayed on the plot."),
-            h4("What does it mean for days to double to increase over time?"),
             p("It's taking longer and longer for your counts to double - this is good for things we don't want like deaths and cases."),
             h4("What does the Download button do?"),
             p("Downloads the data (in csv format) used for the set of plots displayed."),
@@ -116,36 +117,59 @@ ui <- function(request) {
    
 server <- function(input, output, session) {
   
-  output$compPlot <- renderPlotly({
+  output$epiPlot <- renderPlotly({
     filter_locs <- all_locs %>%
       filter(location %in% !!input$location) %>% collect()
     if (nrow(filter_locs) == 0) {
-      return(plotly_empty())
+      return(plotly_empty(type = "scatter", mode = "markers"))
     }
     filter_locs %>%
-      genPlotComps(geo_level = "location",
-                   min_thresh = input$min_thresh,
+      genPlotComps(min_thresh = input$min_thresh,
                    per_million = input$per_million,
                    min_stat = input$min_stat,
                    max_days_since = input$max_days_since,
                    smooth_plots = input$smooth_plots,
-                   scale_to_fit = TRUE, #input$scale_to_fit,
-                   double_days = input$double_days,
-                   show_new = input$show_new,
-                   show_legend = input$show_legend)
+                   show_legend = input$show_legend,
+                   plot_type = "epi")
+    } %>% plotly::partial_bundle())
+  
+  output$hospPlot <- renderPlotly({
+    filter_locs <- all_locs %>%
+      filter(location %in% !!input$location) %>% collect()
+    if (nrow(filter_locs) == 0) {
+      return(plotly_empty(type = "scatter", mode = "markers"))
+    }
+    filter_locs %>%
+      genPlotComps(min_thresh = input$min_thresh,
+                   per_million = input$per_million,
+                   min_stat = input$min_stat,
+                   max_days_since = input$max_days_since,
+                   smooth_plots = input$smooth_plots,
+                   show_legend = input$show_legend,
+                   plot_type = "hosp")
     } %>% plotly::partial_bundle())
   
   output$severityTable <- DT::renderDataTable({
     loc_list %>% arrange(-severity_popM)
   })
   
-  output$downloadGlobalData <- downloadHandler(
+  output$downloadEpiData <- downloadHandler(
     filename = function() {
-      paste0("covid-global-comp-data-", Sys.Date(), ".csv")
+      paste0("covid-comp-epi-data-", Sys.Date(), ".csv")
     },
     content = function(file) {
       readr::write_csv(all_locs %>% filter(location %in% !!input$location) %>%
-                         collect(), file)
+                         as_tibble(), file)
+    }
+  )
+  
+  output$downloadGlobalData <- downloadHandler(
+    filename = function() {
+      paste0("covid-comp-hosp-data-", Sys.Date(), ".csv")
+    },
+    content = function(file) {
+      readr::write_csv(all_locs %>% filter(location %in% !!input$location) %>%
+                         as_tibble(), file)
     }
   )
   
@@ -162,12 +186,11 @@ server <- function(input, output, session) {
   session$onFlushed(function() {
     if (is.null(session$userData$restored)) {
       updateSelectizeInput(session, "location", choices = loc_list$location,
-                           selected = c(
-                             sample(loc_list$location, size = n_locs,
-                                    prob = loc_list$severity_total),
-                             sample(loc_list$location, size = n_locs,
-                                    prob = log(loc_list$severity_popM + 1))),
-                             server = TRUE)
+                           selected = sample(loc_list$location, size = n_locs,
+                                             prob = loc_list$severity_total),
+                             # sample(loc_list$location, size = n_locs,
+                             #        prob = log(loc_list$severity_popM + 1))),
+                           server = TRUE)
     }
   }, once = TRUE)
   
