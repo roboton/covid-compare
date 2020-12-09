@@ -1,2 +1,5 @@
 ^packrat/
 ^\.Rprofile$
+^data/main.csv$
+^data/goog_daily.fst$
+^data/goog_7day.fst$

@@ -15,6 +15,13 @@ nday_rolling_mean <- function(value, n = 7) {
   }) 
 }
 
+empty_plot <- function(title = NULL){
+  p <- plotly_empty(type = "scatter", mode = "markers") %>%
+    config(displayModeBar = FALSE) %>%
+    layout(title = list(text = title, yref = "paper", y = 0.5))
+  return(p)
+}
+
 # Generate source data
 fetchPrepGoogData <- function(min_deaths = 1, min_cases = 10,
                               period = "daily") {
@@ -101,11 +108,11 @@ genCompData <- function(df, min_stat = "total_deceased",
     filter(date >= first_date) %>%
     mutate(days_since = as.numeric(date - first_date)) %>%
     { if(!per_million) mutate(., value = value * population / 1e6) else . } %>%
-    separate(stat, c("value_type", "stat"), sep = "_", extra = "merge") %>%
     select(-population, -first_date) %>%
+    collect() %>%
+    separate(stat, c("value_type", "stat"), sep = "_", extra = "merge") %>%
     # rate calcs
     pivot_wider(names_from = stat, values_from = value) %>%
-    group_by(location) %>%
     { if("deceased" %in% stats_available && "confirmed" %in% stats_available)
       mutate(., case_fatality_rate = deceased / confirmed) else . } %>%
     { if("confirmed" %in% stats_available && "tested" %in% stats_available)
@@ -128,6 +135,9 @@ plotComps <- function(df, min_stat = "total_deceased", min_thresh = 1,
                       span = 0.5,
                       per_million = TRUE,
                       show_legend = TRUE) {
+  if (nrow(df) == 0) {
+    return(empty_plot("no data"))
+  }
   per_million_label <- { if (per_million) "per million people" else "" }
   df %>%
     # truncate days_since
@@ -207,12 +217,15 @@ genPlotComps <- function(
   hosp_stats <- c("hospitalized", "intensive_care", "case_hosp_rate",
                   "hosp_icu_rate", "hosp_fatality_rate", "icu_fatality_rate")
   
-  df %>% genCompData(
+  comp_data <- df %>% genCompData(
     min_thresh = min_thresh, per_million = per_million,
                      min_stat = min_stat) %>%
     { if (plot_type == "epi") filter(., stat %in% epi_stats) else . } %>%
-    { if (plot_type == "hosp") filter(., stat %in% hosp_stats) else . } %>%
-    plotComps(
+    { if (plot_type == "hosp") filter(., stat %in% hosp_stats) else . }
+  if (nrow(comp_data) == 0) {
+    return(empty_plot(paste("no", plot_type, "data")))
+  }
+  comp_data %>% plotComps(
       min_thresh = min_thresh,
       smooth_plots = smooth_plots,
      min_stat = min_stat,

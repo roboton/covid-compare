@@ -11,7 +11,9 @@ n_locs <- 3
 
 # pull in data
 all_locs <- lazy_dt(fst::read_fst(data_file), key_by = "location")
+
 loc_list <- all_locs %>% filter(stat == "new_deceased") %>%
+  filter(!is.na(value)) %>%
   group_by(location) %>%
   arrange(location, date) %>%
   summarise(
@@ -33,7 +35,7 @@ options(scipen = 999, digits = 1)
 ui <- function(request) {
   fluidPage(
     #shinyjs::useShinyjs(), # for moving showcase code to the bottom
-    shinybusy::add_busy_bar(color = "CornflowerBlue", timeout = 500),
+    shinybusy::add_busy_bar(color = "CornflowerBlue", timeout = 800),
     titlePanel("Covid-19 comparisons"),
     tags$a(
       href = "https://github.com/roboton/covid-compare",
@@ -72,13 +74,12 @@ ui <- function(request) {
             "Epidemiology", value = "epi_plots",
             plotlyOutput(
               "epiPlot", width = "100%", height = "1400px"),
-              downloadButton("downloadEpiData", "download data (csv)")
+              downloadButton("downloadData", "download data (csv)")
           ),
           tabPanel(
             "Hospitalization", value = "hosp_plots",
             plotlyOutput(
-              "hospPlot", width = "100%", height = "1400px"),
-              downloadButton("downloadHospData", "download data (csv)")
+              "hospPlot", width = "100%", height = "1400px")
           ),
           tabPanel(
             "Severity", value = "severity",
@@ -119,10 +120,10 @@ server <- function(input, output, session) {
   
   output$epiPlot <- renderPlotly({
     filter_locs <- all_locs %>%
-      filter(location %in% !!input$location) %>% collect()
-    if (nrow(filter_locs) == 0) {
-      return(plotly_empty(type = "scatter", mode = "markers"))
-    }
+      filter(location %in% !!input$location)
+    # if (nrow(filter_locs) == 0) {
+    #   return(empty_plot("no location data"))
+    # }
     filter_locs %>%
       genPlotComps(min_thresh = input$min_thresh,
                    per_million = input$per_million,
@@ -135,10 +136,10 @@ server <- function(input, output, session) {
   
   output$hospPlot <- renderPlotly({
     filter_locs <- all_locs %>%
-      filter(location %in% !!input$location) %>% collect()
-    if (nrow(filter_locs) == 0) {
-      return(plotly_empty(type = "scatter", mode = "markers"))
-    }
+      filter(location %in% !!input$location)
+    # if (nrow(filter_locs) == 0) {
+    #   return(empty_plot("no location data"))
+    # }
     filter_locs %>%
       genPlotComps(min_thresh = input$min_thresh,
                    per_million = input$per_million,
@@ -152,20 +153,10 @@ server <- function(input, output, session) {
   output$severityTable <- DT::renderDataTable({
     loc_list %>% arrange(-severity_popM)
   })
-  
-  output$downloadEpiData <- downloadHandler(
+
+  output$downloadData <- downloadHandler(
     filename = function() {
-      paste0("covid-comp-epi-data-", Sys.Date(), ".csv")
-    },
-    content = function(file) {
-      readr::write_csv(all_locs %>% filter(location %in% !!input$location) %>%
-                         as_tibble(), file)
-    }
-  )
-  
-  output$downloadGlobalData <- downloadHandler(
-    filename = function() {
-      paste0("covid-comp-hosp-data-", Sys.Date(), ".csv")
+      paste0("covid-comp-data-", Sys.Date(), ".csv")
     },
     content = function(file) {
       readr::write_csv(all_locs %>% filter(location %in% !!input$location) %>%
