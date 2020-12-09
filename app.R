@@ -52,7 +52,7 @@ ui <- function(request) {
         selectizeInput(
           "location", "Location", choices = NULL, multiple = TRUE,
           options = list(placeholder = 'type to select a location')),
-        bookmarkButton(),
+        #bookmarkButton(),
         selectInput("min_stat", "metric to compare by:", compare_metrics),
         numericInput("min_thresh",
                      "initial number of deaths:", min = 0, value = min_global),
