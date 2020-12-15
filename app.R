@@ -22,9 +22,11 @@ loc_list <- all_locs %>% filter(stat == "new_deceased") %>%
   ungroup() %>%
   filter(is.finite(severity_total) & severity_total > 0) %>%
   mutate(level = str_count(location, ",")) %>%
-         #location = as.character(location)) %>%
   arrange(level) %>% select(-level) %>%
-  as_tibble()
+  collect()
+
+init_locs <- sample(loc_list$location, 3)
+cur_locs <- init_locs
 
 compare_metrics <- c("deaths" = "total_deceased", "cases" = "total_confirmed",
                      "tests" = "total_tested")
@@ -33,6 +35,7 @@ compare_metrics <- c("deaths" = "total_deceased", "cases" = "total_confirmed",
 options(scipen = 999, digits = 1)
 
 ui <- function(request) {
+  mobile_req <- is_mobile(request$HTTP_USER_AGENT)
   fluidPage(
     #shinyjs::useShinyjs(), # for moving showcase code to the bottom
     shinybusy::add_busy_bar(color = "CornflowerBlue", timeout = 800),
@@ -50,9 +53,9 @@ ui <- function(request) {
       sidebarPanel(
         # data options
         selectizeInput(
-          "location", "Location", choices = NULL, multiple = TRUE,
+          "location", "Location", choices = loc_list$location, multiple = TRUE,
           options = list(placeholder = 'type to select a location')),
-        #bookmarkButton(),
+        bookmarkButton(),
         selectInput("min_stat", "metric to compare by:", compare_metrics),
         numericInput("min_thresh",
                      "initial number of deaths:", min = 0, value = min_global),
@@ -62,8 +65,10 @@ ui <- function(request) {
                      "days since initial number of deaths:", min = 0,
                      value = 365),
         # plot options
+        numericInput("num_cols",
+                     "Number of cols", value = if_else(mobile_req, 1, 2)),
         checkboxInput("show_legend",
-                      "Show legend", value = TRUE),
+                      "Show legend", value = !mobile_req),
         checkboxInput("smooth_plots",
                       "Smooth plot values", value = FALSE), 
         width = 2),
@@ -73,13 +78,15 @@ ui <- function(request) {
           tabPanel(
             "Epidemiology", value = "epi_plots",
             plotlyOutput(
-              "epiPlot", width = "100%", height = "1400px"),
+              "epiPlot", width = "100%", height = if_else(
+                mobile_req, "2600px", "1400px")),
               downloadButton("downloadData", "download data (csv)")
           ),
           tabPanel(
             "Hospitalization", value = "hosp_plots",
             plotlyOutput(
-              "hospPlot", width = "100%", height = "1400px")
+              "hospPlot", width = "100%", height = if_else(
+                mobile_req, "2600px", "1400px"))
           ),
           tabPanel(
             "Severity", value = "severity",
@@ -117,7 +124,7 @@ ui <- function(request) {
 } 
    
 server <- function(input, output, session) {
-  
+  #mobile_req <- is_mobile(session$request$HTTP_USER_AGENT)
   output$epiPlot <- renderPlotly({
     filter_locs <- all_locs %>%
       filter(location %in% !!input$location)
@@ -131,8 +138,10 @@ server <- function(input, output, session) {
                    max_days_since = input$max_days_since,
                    smooth_plots = input$smooth_plots,
                    show_legend = input$show_legend,
-                   plot_type = "epi")
-    } %>% plotly::partial_bundle())
+                   plot_type = "epi",
+                   ncol = input$num_cols)
+    })
+    #} %>% plotly::partial_bundle())
   
   output$hospPlot <- renderPlotly({
     filter_locs <- all_locs %>%
@@ -148,7 +157,8 @@ server <- function(input, output, session) {
                    smooth_plots = input$smooth_plots,
                    show_legend = input$show_legend,
                    plot_type = "hosp")
-    } %>% plotly::partial_bundle())
+    })
+    #} %>% plotly::partial_bundle())
   
   output$severityTable <- DT::renderDataTable({
     loc_list %>% arrange(-severity_popM)
@@ -164,32 +174,32 @@ server <- function(input, output, session) {
     }
   )
   
-  # server side location selectize
-  updateSelectizeInput(session, "location", choices = loc_list$location,
-                       server = TRUE)
+  # # server side location selectize
+  # updateSelectizeInput(session, "location", choices = loc_list$location,
+  #                      server = TRUE)
   
-  # ensure we don't overwrite bookmark locations with default
-  session$onRestore(function(state) {
-    session$userData$restored <- TRUE
-    updateSelectizeInput(session, "location", choices = loc_list$location,
-                         selected = state$input$location, server = TRUE)
-  })
-  session$onFlushed(function() {
-    if (is.null(session$userData$restored)) {
-      updateSelectizeInput(session, "location", choices = loc_list$location,
-                           selected = sample(loc_list$location, size = n_locs,
-                                             prob = loc_list$severity_total),
-                             # sample(loc_list$location, size = n_locs,
-                             #        prob = log(loc_list$severity_popM + 1))),
-                           server = TRUE)
-    }
-  }, once = TRUE)
+  # # ensure we don't overwrite bookmark locations with default
+  # session$onRestore(function(state) {
+  #   session$userData$restored <- TRUE
+  #   updateSelectizeInput(session, "location", choices = loc_list$location,
+  #                        selected = state$input$location, server = TRUE)
+  # })
+  # session$onFlushed(function() {
+  #   if (is.null(session$userData$restored)) {
+  #     updateSelectizeInput(session, "location", choices = loc_list$location,
+  #                          selected = sample(loc_list$location, size = n_locs,
+  #                                            prob = loc_list$severity_total),
+  #                            # sample(loc_list$location, size = n_locs,
+  #                            #        prob = log(loc_list$severity_popM + 1))),
+  #                          server = TRUE)
+  #   }
+  # }, once = TRUE)
   
-  # shorten bookmark url
-  session$onBookmarked(function(url) {
-    short_url <- urlshorteneR::isgd_LinksShorten(longUrl = url)
-    showBookmarkUrlModal(short_url)
-  })
+  # # shorten bookmark url
+  # session$onBookmarked(function(url) {
+  #   short_url <- urlshorteneR::isgd_LinksShorten(longUrl = url)
+  #   showBookmarkUrlModal(short_url)
+  # })
   
   # update min_stat metric
   observeEvent(input$min_stat, {
@@ -202,4 +212,4 @@ server <- function(input, output, session) {
   })  
 }
 
-shinyApp(ui = ui, server = server, enableBookmarking = "url")
+shinyApp(ui = ui, server = server, enableBookmarking = "server")

@@ -22,6 +22,15 @@ empty_plot <- function(title = NULL){
   return(p)
 }
 
+is_mobile <- function(user_agent, mobile_os = c("Android", "iOS")) {
+  ua_tbl <- uaparserjs::ua_parse(user_agent)
+  if ("os.family" %in% names(ua_tbl)) {
+    warning(ua_tbl$os.family)
+    return(ua_tbl$os.family %in% mobile_os)
+  }
+  return(FALSE)
+}
+
 # Generate source data
 fetchPrepGoogData <- function(min_deaths = 1, min_cases = 10,
                               period = "daily") {
@@ -119,7 +128,7 @@ genCompData <- function(df, min_stat = "total_deceased",
       mutate(., positive_test_rate = confirmed / tested) else . } %>%
     { if("hospitalized" %in% stats_available && "confirmed" %in% stats_available)
       mutate(., case_hosp_rate = hospitalized / confirmed) else . } %>%
-    { if("intensive_care" %in% stats_available && "confirmed" %in% stats_available)
+    { if("intensive_care" %in% stats_available && "hospitalized" %in% stats_available)
       mutate(., hosp_icu_rate = intensive_care / hospitalized) else . } %>%
     { if("deceased" %in% stats_available && "hospitalized" %in% stats_available)
       mutate(., hosp_fatality_rate = deceased / hospitalized) else . } %>%
@@ -134,7 +143,7 @@ plotComps <- function(df, min_stat = "total_deceased", min_thresh = 1,
                       smooth_plots = FALSE,
                       span = 0.5,
                       per_million = TRUE,
-                      show_legend = TRUE) {
+                      show_legend = TRUE, ncol = 2) {
   if (nrow(df) == 0) {
     return(empty_plot("no data"))
   }
@@ -169,7 +178,7 @@ plotComps <- function(df, min_stat = "total_deceased", min_thresh = 1,
     {if (smooth_plots) geom_line(stat = "smooth", method = "loess", span = span,
                                  alpha = 0.8, formula = y ~ x)} +
     # .multi_line false doesn't work with ggplotly
-    facet_wrap(vars(stat, value_type), ncol = 2, scales = "free_y",
+    facet_wrap(vars(stat, value_type), ncol = ncol, scales = "free_y",
                labeller = labeller(.multi_line = TRUE)) +
     # labelling
     xlab(paste0("Days since ", min_stat,
@@ -210,7 +219,8 @@ genPlotComps <- function(
   max_days_since = 365, smooth_plots = FALSE,
   per_million = TRUE,
   show_legend = TRUE,
-  plot_type = "epi") {
+  plot_type = "epi",
+  ncol = 2) {
   
   epi_stats <- c("deceased", "confirmed", "tested", "case_fatality_rate",
                  "positive_test_rate")
@@ -226,10 +236,11 @@ genPlotComps <- function(
     return(empty_plot(paste("no", plot_type, "data")))
   }
   comp_data %>% plotComps(
-      min_thresh = min_thresh,
-      smooth_plots = smooth_plots,
-     min_stat = min_stat,
-      per_million = per_million,
-      show_legend = show_legend) %>%
+    min_thresh = min_thresh,
+    smooth_plots = smooth_plots,
+    min_stat = min_stat,
+    per_million = per_million,
+    show_legend = show_legend,
+    ncol = ncol) %>%
     cleanPlotly()
 }
