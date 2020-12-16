@@ -78,15 +78,17 @@ ui <- function(request) {
           tabPanel(
             "Epidemiology", value = "epi_plots",
             plotlyOutput(
-              "epiPlot", width = "100%", height = if_else(
-                mobile_req, "2600px", "1400px")),
-              downloadButton("downloadData", "download data (csv)")
+              "epiPlot",
+              width = if_else(mobile_req, "auto", "auto"),
+              height = if_else(mobile_req, "2800px", "1400px")),
+            downloadButton("downloadData", "download data (csv)")
           ),
           tabPanel(
             "Hospitalization", value = "hosp_plots",
             plotlyOutput(
-              "hospPlot", width = "100%", height = if_else(
-                mobile_req, "2600px", "1400px"))
+              "hospPlot",
+              width = if_else(mobile_req, "auto", "auto"),
+              height = if_else(mobile_req, "2800px", "1400px"))
           ),
           tabPanel(
             "Severity", value = "severity",
@@ -128,9 +130,6 @@ server <- function(input, output, session) {
   output$epiPlot <- renderPlotly({
     filter_locs <- all_locs %>%
       filter(location %in% !!input$location)
-    # if (nrow(filter_locs) == 0) {
-    #   return(empty_plot("no location data"))
-    # }
     filter_locs %>%
       genPlotComps(min_thresh = input$min_thresh,
                    per_million = input$per_million,
@@ -146,9 +145,6 @@ server <- function(input, output, session) {
   output$hospPlot <- renderPlotly({
     filter_locs <- all_locs %>%
       filter(location %in% !!input$location)
-    # if (nrow(filter_locs) == 0) {
-    #   return(empty_plot("no location data"))
-    # }
     filter_locs %>%
       genPlotComps(min_thresh = input$min_thresh,
                    per_million = input$per_million,
@@ -202,13 +198,15 @@ server <- function(input, output, session) {
   # })
   
   # update min_stat metric
-  observeEvent(input$min_stat, {
+  observeEvent({ list(input$min_stat, input$per_million, input$min_thresh) }, {
+    per_million_label <- if_else(input$per_million, " per million", "")
     stat_label <- names(compare_metrics)[compare_metrics == input$min_stat]
     updateSelectInput(session, "min_thresh",
-                      label = paste0("initial number of ", stat_label, ":"))
+                      label = paste0("initial number of ", stat_label,
+                                     per_million_label, ":"))
     updateNumericInput(session, "max_days_since",
-                       label = paste("days since initial number of",
-                                     stat_label, ":"))
+                       label = paste0("days since ", input$min_thresh,
+                                      stat_label, per_million_label, ":"))
   })  
 }
 

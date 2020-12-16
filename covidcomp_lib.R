@@ -82,7 +82,7 @@ fetchPrepGoogData <- function(min_deaths = 1, min_cases = 10,
         group_by(location, date) %>%
         arrange(location, date) %>%
         summarise(
-          across(starts_with("total_"), last),
+          across(starts_with("total_"), ~ last(na.omit(.x))),
           across(starts_with("new_"),
                  ~ if_else(any(!is.na(.x)), sum(.x, na.rm = TRUE), NA_real_)),
           across(population,
@@ -178,7 +178,7 @@ plotComps <- function(df, min_stat = "total_deceased", min_thresh = 1,
     {if (smooth_plots) geom_line(stat = "smooth", method = "loess", span = span,
                                  alpha = 0.8, formula = y ~ x)} +
     # .multi_line false doesn't work with ggplotly
-    facet_wrap(vars(stat, value_type), ncol = ncol, scales = "free_y",
+    facet_wrap(vars(stat, value_type), ncol = ncol, scales = "free",
                labeller = labeller(.multi_line = TRUE)) +
     # labelling
     xlab(paste0("Days since ", min_stat,
