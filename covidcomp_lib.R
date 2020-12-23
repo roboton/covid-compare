@@ -25,7 +25,7 @@ empty_plot <- function(title = NULL){
 is_mobile <- function(user_agent, mobile_os = c("Android", "iOS")) {
   ua_tbl <- uaparserjs::ua_parse(user_agent)
   if ("os.family" %in% names(ua_tbl)) {
-    warning(ua_tbl$os.family)
+    #warning(ua_tbl$os.family)
     return(ua_tbl$os.family %in% mobile_os)
   }
   return(FALSE)

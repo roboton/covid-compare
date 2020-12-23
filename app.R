@@ -53,8 +53,10 @@ ui <- function(request) {
       sidebarPanel(
         # data options
         selectizeInput(
-          "location", "Location", choices = loc_list$location, multiple = TRUE,
+          "location", "Locaiton", choices = NULL, multiple = TRUE,
           options = list(placeholder = 'type to select a location')),
+          # "location", "Location", choices = loc_list$location, multiple = TRUE,
+          # options = list(placeholder = 'type to select a location')),
         bookmarkButton(),
         selectInput("min_stat", "metric to compare by:", compare_metrics),
         numericInput("min_thresh",
@@ -170,16 +172,16 @@ server <- function(input, output, session) {
     }
   )
   
-  # # server side location selectize
-  # updateSelectizeInput(session, "location", choices = loc_list$location,
-  #                      server = TRUE)
+  # server side location selectize
+  updateSelectizeInput(session, "location", choices = loc_list$location,
+                       server = TRUE)
   
-  # # ensure we don't overwrite bookmark locations with default
-  # session$onRestore(function(state) {
-  #   session$userData$restored <- TRUE
-  #   updateSelectizeInput(session, "location", choices = loc_list$location,
-  #                        selected = state$input$location, server = TRUE)
-  # })
+  # ensure we don't overwrite bookmark locations with default
+  session$onRestore(function(state) {
+    session$userData$restored <- TRUE
+    updateSelectizeInput(session, "location", choices = loc_list$location,
+                         selected = state$input$location, server = TRUE)
+  })
   # session$onFlushed(function() {
   #   if (is.null(session$userData$restored)) {
   #     updateSelectizeInput(session, "location", choices = loc_list$location,
