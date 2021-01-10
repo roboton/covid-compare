@@ -3,7 +3,7 @@ library(shiny)
 source("covidcomp_lib.R", local = TRUE)
 
 # set up global params
-min_global <- 1
+min_global <- 5
 refresh_interval <- hours(24)
 data_file <- "data/goog_weekly.fst"
 last_update <- file.info(data_file)$mtime
@@ -53,7 +53,7 @@ ui <- function(request) {
       sidebarPanel(
         # data options
         selectizeInput(
-          "location", "Locaiton", choices = NULL, multiple = TRUE,
+          "location", "Location", choices = NULL, multiple = TRUE,
           options = list(placeholder = 'type to select a location')),
           # "location", "Location", choices = loc_list$location, multiple = TRUE,
           # options = list(placeholder = 'type to select a location')),
@@ -68,7 +68,7 @@ ui <- function(request) {
                      value = 365),
         # plot options
         numericInput("num_cols",
-                     "Number of cols", value = if_else(mobile_req, 1, 2)),
+                     "Number of columns", value = if_else(mobile_req, 1, 2)),
         checkboxInput("show_legend",
                       "Show legend", value = !mobile_req),
         checkboxInput("smooth_plots",
@@ -207,7 +207,7 @@ server <- function(input, output, session) {
                       label = paste0("initial number of ", stat_label,
                                      per_million_label, ":"))
     updateNumericInput(session, "max_days_since",
-                       label = paste0("days since ", input$min_thresh,
+                       label = paste0("days since ", input$min_thresh, " ",
                                       stat_label, per_million_label, ":"))
   })  
 }
