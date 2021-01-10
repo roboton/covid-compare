@@ -32,8 +32,7 @@ is_mobile <- function(user_agent, mobile_os = c("Android", "iOS")) {
 }
 
 # Generate source data
-fetchPrepGoogData <- function(min_deaths = 1, min_cases = 10,
-                              period = "daily") {
+fetchPrepGoogData <- function(period = "weekly") {
   vroom::vroom(
     "https://storage.googleapis.com/covid19-open-data/v2/main.csv",
     col_select = c(date, key,
@@ -118,7 +117,7 @@ genCompData <- function(df, min_stat = "total_deceased",
     mutate(days_since = as.numeric(date - first_date)) %>%
     { if(!per_million) mutate(., value = value * population / 1e6) else . } %>%
     select(-population, -first_date) %>%
-    collect() %>%
+   collect() %>%
     separate(stat, c("value_type", "stat"), sep = "_", extra = "merge") %>%
     # rate calcs
     pivot_wider(names_from = stat, values_from = value) %>%
