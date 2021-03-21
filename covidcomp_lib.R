@@ -32,7 +32,8 @@ is_mobile <- function(user_agent, mobile_os = c("Android", "iOS")) {
 }
 
 # Generate source data
-fetchPrepGoogData <- function(period = "weekly") {
+fetchPrepGoogData <- function(period = "week", per_million = TRUE,
+                              readable_loc = TRUE) {
   vroom::vroom(
     "https://storage.googleapis.com/covid19-open-data/v2/main.csv",
     col_select = c(date, key,
@@ -70,32 +71,41 @@ fetchPrepGoogData <- function(period = "weekly") {
                   country_name = "c"),
     num_threads = 16) %>%
     # create name
-    unite(name, ends_with("_name"), sep = ", ", na.rm = TRUE) %>%
-    # append most granular identifier 
-    mutate(key = str_remove(key, "^.*_")) %>%
-    unite(location, name, key, sep = " ") %>%
+    { if (readable_loc) {
+      unite(., name, ends_with("_name"), sep = ", ", na.rm = TRUE) %>%
+        # append most granular identifier 
+        mutate(key = str_remove(key, "^.*_")) %>%
+        unite(location, name, key, sep = " ")
+      } else {
+        rename(., location = key) %>%
+          select(-ends_with("_name"))
+      } } %>%
     mutate(location = as.factor(location)) %>%
-    # compute weekly stats
-    { if (period == "weekly") {
-      mutate(., date = floor_date(date, "week")) %>%
-        group_by(location, date) %>%
-        arrange(location, date) %>%
-        summarise(
-          across(starts_with("total_"), ~ last(na.omit(.x))),
-          across(starts_with("new_"),
-                 ~ if_else(any(!is.na(.x)), sum(.x, na.rm = TRUE), NA_real_)),
-          across(population,
-                 ~ if_else(any(!is.na(.x)), mean(.x, na.rm = TRUE), NA_real_)),
-          num_dates = n(),
-          .groups = "drop") %>%
-        # drop partial weeks
-        filter(num_dates == 7 & is.finite(population)) %>%
-        select(-num_dates)
-      } else . } %>%
-    mutate(
-      # population adjusted
-      across(c(starts_with("total_"), starts_with("new_")),
-             ~ .x / population * 1e6)) %>%
+    # compute period stats
+    mutate(date = floor_date(date, period)) %>%
+    lazy_dt(key_by = c(location, date)) %>%
+    group_by(location, date) %>%
+    arrange(location, date) %>%
+    summarise(
+      across(starts_with("total_"), ~ last(na.omit(.x))),
+      across(starts_with("new_"),
+             ~ ifelse(any(!is.na(.x)), sum(.x, na.rm = TRUE), NA_real_)),
+      across(population,
+             ~ ifelse(any(!is.na(.x)), mean(.x, na.rm = TRUE), NA_real_)),
+      num_dates = n()) %>%
+    ungroup() %>%
+    filter(is.finite(population)) %>%
+    # ensure no partial periods
+    { if (period == "week") filter(., num_dates == 7) else . } %>%
+    { if (period == "day") filter(., num_dates == 1) else . } %>%
+    { if (period == "month") filter(
+      ., num_dates == days_in_month(month(date))) else . } %>%
+    select(-num_dates) %>%
+    # counts per million
+    { if (per_million) mutate(., across(c(starts_with("total_"),
+                                          starts_with("new_")),
+                                        ~ .x / population * 1e6)) else . } %>%
+    collect() %>%
     pivot_longer(c(-date, -location, -population),
                  names_to = "stat", values_to = "value") %>%
     mutate(stat = as.factor(stat)) %>%
@@ -104,8 +114,8 @@ fetchPrepGoogData <- function(period = "weekly") {
 }
 
 # plot comps function
-genCompData <- function(df, min_stat = "total_deceased",
-                        min_thresh = 1, per_million = TRUE) {
+genCompData <- function(df, min_stat = "total_deceased",  min_thresh = 1,
+                        per_million = TRUE, keep_pop = FALSE) {
   stats_available <- df %>% pull(stat) %>% unique() %>%
     str_split(pattern = "_", simplify = TRUE, n = 2) %>% .[,2] %>% unique()
   df %>%
@@ -116,7 +126,8 @@ genCompData <- function(df, min_stat = "total_deceased",
     filter(date >= first_date) %>%
     mutate(days_since = as.numeric(date - first_date)) %>%
     { if(!per_million) mutate(., value = value * population / 1e6) else . } %>%
-    select(-population, -first_date) %>%
+    { if(!keep_pop) select(., -population, -first_date) else 
+      select(., -first_date) } %>%
    collect() %>%
     separate(stat, c("value_type", "stat"), sep = "_", extra = "merge") %>%
     # rate calcs
@@ -133,8 +144,13 @@ genCompData <- function(df, min_stat = "total_deceased",
       mutate(., hosp_fatality_rate = deceased / hospitalized) else . } %>%
     { if("deceased" %in% stats_available && "intensive_care" %in% stats_available)
       mutate(., icu_fatality_rate = deceased / intensive_care) else . } %>%
-    pivot_longer(c(-location, -date, -value_type, -days_since),
-                 names_to = "stat", values_to = "value")
+    { if(!keep_pop) {
+      pivot_longer(., c(-location, -date, -value_type, -days_since),
+                   names_to = "stat", values_to = "value")
+    } else {
+      pivot_longer(., c(-location, -population, -date, -value_type, -days_since),
+                   names_to = "stat", values_to = "value")
+    } }
 }
 
 plotComps <- function(df, min_stat = "total_deceased", min_thresh = 1,
@@ -236,6 +252,7 @@ genPlotComps <- function(
   }
   comp_data %>% plotComps(
     min_thresh = min_thresh,
+    max_days_since = max_days_since,
     smooth_plots = smooth_plots,
     min_stat = min_stat,
     per_million = per_million,
