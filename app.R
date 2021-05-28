@@ -13,14 +13,15 @@ n_locs <- 3
 all_locs <- lazy_dt(fst::read_fst(data_file), key_by = "location")
 
 loc_list <- all_locs %>% filter(stat == "new_deceased") %>%
-  filter(!is.na(value)) %>%
+  filter(!is.na(value) | str_detect(location, "Taiwan")) %>%
   group_by(location) %>%
   arrange(location, date) %>%
   summarise(
     severity_popM = last(value),
     severity_total = last(value) * last(population) / 1e6) %>%
   ungroup() %>%
-  filter(is.finite(severity_total) & severity_total > 0) %>%
+  filter(is.finite(severity_total) & severity_total > 0 |
+           str_detect(location, "Taiwan")) %>%
   mutate(level = str_count(location, ",")) %>%
   arrange(level) %>% select(-level) %>%
   collect()
@@ -65,7 +66,8 @@ ui <- function(request) {
                       "Counts per million people", value = TRUE),
         numericInput("max_days_since",
                      "days since initial number of deaths:", min = 0,
-                     value = 365),
+                     value = as.numeric(today() - ymd("2020-01-01"),
+                                        unit = "days")),
         # plot options
         numericInput("num_cols",
                      "Number of columns", value = if_else(mobile_req, 1, 2)),
@@ -159,7 +161,7 @@ server <- function(input, output, session) {
     #} %>% plotly::partial_bundle())
   
   output$severityTable <- DT::renderDataTable({
-    loc_list %>% arrange(-severity_popM)
+    loc_list %>% arrange(-severity_total)
   })
 
   output$downloadData <- downloadHandler(
