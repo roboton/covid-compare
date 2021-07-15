@@ -1,0 +1,523 @@
+---
+title: "COVID-19 Comparisons"
+subtitle: "Learnings from the first wave of the pandemic, applied to the second"
+output:
+  html_notebook:
+    toc: true
+---
+The idea behind this analysis is to borrow some ideas from [synthetic control](https://en.wikipedia.org/wiki/Synthetic_control_method) causal designs to estimate how different policy responses in different jurisdictions in the first wave of the pandemic may have then gone on the affect the second wave.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+source("covidcomp_lib.R", local = TRUE)
+
+# how many months to match on before evaluating
+num_match_months <- 6
+num_eval_months <- 6
+# time "zero" without actual reference to a specific date (b/c of re-alignment)
+base_date <- ymd("2020-01-01")
+eval_date <- base_date + months(num_match_months)
+end_date <- eval_date + months(num_eval_months)
+
+# significance for CausalImpact
+sig_p <- 0.05
+# aggregate to this level of data
+period <- "week"
+# minimum population size to be considered
+pop_thresh <- 1e5
+# align timeseries starting from this many deaths per million
+death_thresh <- 1
+# how many locations needed to run CausalImpact
+min_locs <- 10
+eval_stat <- "deceased"
+``` 
+
+To do this, we match the time series of COVID-19 `r eval_stat` cases for different jurisdictions for the first `r num_match_months` months of the pandemic (defined to be where total deaths per million exceeds `r death_thresh` in a locality) and evaluate their time series on the next `r num_eval_months` months of the pandemic. The [CausalImpact](http://google.github.io/CausalImpact/CausalImpact.html) package does exactly this by leveraging a set of timeseries to try to predict a target timeseries in the pre-period  as a "synthetic control". Then comparing the target and control timeseries in the post-period to evaulate the difference.
+
+## Data fetch and prep
+
+We use Google's [COVID-19 open data repository](https://github.com/GoogleCloudPlatform/covid-19-open-data) as our data source for COVID and population information.
+
+```{r}
+fst_file <- paste0("data/comp_data_", death_thresh, floor_date(today(), "week"),
+                   ".fst")
+if (file.exists(fst_file)) {
+  comp_data <- fst::read_fst(fst_file) 
+} else {
+  comp_data <- fetchPrepGoogData(period = period, readable_loc = FALSE) %>%
+    genCompData(min_thresh = death_thresh, per_million = TRUE,
+                min_stat = "total_deceased", keep_pop = TRUE) %>%
+    fst::write_fst(fst_file)
+}
+```
+
+Next we prepare this data for analysis by constructing a set of timeseries aligned when they first exceeded `r death_thresh` deaths per million. We also require that there be at least `r num_match_months + num_eval_months` months of data since they've reached that threshold in order to have `r num_match_months` months of data for the pre-period and `r num_eval_months` months for the post-period.  We do our sub-country unit analysis per country so each country needs to have at least `r min_locs` sub-units within the country that satisfy the above constraints. We also do an analysis at the global level treating each country as a subunit.
+
+```{r}
+comp_sets <- comp_data %>%
+  mutate(orig_date = date,
+         date = base_date + days(days_since)) %>%
+  # pop filter
+  filter(population >= {{pop_thresh}} & stat == {{eval_stat}} &
+           value_type == "new") %>%
+  group_by(location) %>%
+  filter(max(date) >= {{end_date}}) %>%
+  # min_loc filter
+  group_by(country = str_sub(location, 1, 2),
+           level = str_count(location, "_")) %>%
+  filter(n_distinct(location) >= min_locs | level == 0) %>%
+  ungroup() %>%
+  mutate(country = if_else(level == 0, "GLOBAL", country)) %>%
+  unite(set, country, level) %>%
+  select(set, ts_id = location, date, orig_date, count = value) %>%
+  filter(date <= end_date)
+```
+
+## Run CausalImpact synthetic control model
+
+We run the `CausalImpact` package for each country-subunit set.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+devtools::install_github("roboton/tscompare")
+library(furrr)
+plan(multisession, workers = round(availableCores() - 2))
+
+out_dirs <- future_map_chr(
+  group_split(comp_sets, set),
+  ~ select(.x, -set) %>%
+    tscompare::ts_analysis(group_id = first(.x$set),
+                           start_date = {{eval_date}},
+                           period = period, min_pre_periods = 0,
+                           min_post_periods = 0,
+                           min_timeseries = {{min_locs}},
+                           sig_p = {{sig_p}}))
+```
+
+This produces a set of directories with the output of this analysis for each country-subunit set which can be found [here](https://ond3.com/covidcomp/)
+
+## Set Viz
+
+```{r}
+set_names <- c("GLOBAL_0", fs::dir_ls(regexp = "^[A-Z]{2}_"))
+
+# set choice
+set_name <- sample(set_names, 1)
+mdl_data <- read_rds(fs::path(set_name, "group_timeseries_model.rds"))
+
+geo_names <- tibble(
+  name = names(mdl_data),
+  cumrel_effect = map_dbl(mdl_data, ~ .x$summary["Cumulative", "RelEffect"])) %>%
+  arrange(desc(abs(cumrel_effect)))
+
+# geo choice
+geo_name <- str_remove(
+  sample(geo_names$name, 1, prob = abs(geo_names$cumrel_effect)),
+  "ts_")
+
+full_geo_name <- ifelse(
+  set_name == "GLOBAL_0",
+  countrycode::countrycode(geo_name, "iso2c", "cldr.name.en"),
+  geo_name)
+
+cur_mdl <- mdl_data[[str_c("ts_", geo_name)]]
+
+orig_counts <- as.vector(cur_mdl$series$response)
+orig_dates <- zoo::index(cur_mdl$series$response)
+
+# diff_days <- min(orig_dates) - base_date
+# adj_eval_date <- base_date + months(num_match_months) + diff_days
+
+main_plot <- cur_mdl$series %>% broom::tidy() %>%
+  mutate(series_type = case_when(str_ends(series, ".lower") ~ "lower",
+                                 str_ends(series, ".upper") ~ "upper",
+                                 TRUE ~ "value"),
+         series = str_remove(series, "(.lower)|(.upper)"),
+         series = if_else(series == "response", "point.response", series)) %>%
+  pivot_wider(names_from = series_type, values_from = value) %>%
+  separate(series, c("cumulative", "type")) %>%
+  mutate(cumulative = if_else(cumulative == "cum", "cumulative", "point"),
+         plot_group = if_else(type == "effect", "effect", "response"),
+         predicted = if_else(is.na(lower), "actual", "predicted"),
+         across(c(lower, upper), ~ if_else(is.na(.x), value, .x)),
+         # index = index + diff_days,
+         label = str_c(cumulative, plot_group, sep = " ")) %>%
+  filter(label == "point response") %>%
+  mutate(index = as.numeric(index - min(index), unit = "days")) %>%
+  ggplot(aes(index, value)) +
+  geom_vline(xintercept = as.numeric(eval_date - base_date), linetype = 2, alpha = 0.5) +
+  geom_ribbon(aes(ymin = lower, ymax = upper, linetype = predicted), alpha = 0.2) +
+  geom_line((aes(linetype = predicted))) +
+  # facet_wrap(~ label, scales = "free_y", ncol = 1,
+  #            labeller = label_wrap_gen(multi_line=FALSE)) +
+  ggtitle(full_geo_name) +
+  xlab("days since") + ylab("count") +
+  theme(legend.title = element_blank())
+
+# plot_labels <- unique(main_plot$label)
+# reseff_plots <- map(plot_labels, function(plot_label) {
+#   main_plot %>%
+#     filter(label == plot_label) %>%
+#     ggplot(aes(index, value)) +
+#     geom_vline(xintercept = as.numeric(adj_eval_date), linetype = 2, alpha = 0.5) +
+#     geom_ribbon(aes(ymin = lower, ymax = upper, linetype = predicted), alpha = 0.2) +
+#     geom_line((aes(linetype = predicted))) +
+#     # facet_wrap(~ label, scales = "free_y", ncol = 1,
+#     #            labeller = label_wrap_gen(multi_line=FALSE)) +
+#     theme(legend.position = "none") +
+#     ggtitle(full_geo_name) +
+#     xlab(NULL) + ylab("count")
+# })
+
+bsts.object <- cur_mdl$model$bsts.model
+burn <- bsts::SuggestBurn(0.1, bsts.object)
+beta <- as_tibble(bsts.object$coefficients)
+predictors <- as_tibble(bsts.object$predictors)
+
+peer_plot <- beta %>%
+  as_tibble() %>%
+  slice(-1:-burn) %>%
+  select(-`(Intercept)`) %>%
+  pivot_longer(everything()) %>%
+  group_by(name) %>%
+  summarise(
+    inclusion = mean(value != 0),
+    pos_prob = if_else(all(value == 0), 0, mean(value[value != 0] > 0)),
+    sign = if_else(pos_prob > 0.5, 1, -1)) %>%
+  slice_max(inclusion, n = 5) %>%
+  left_join(predictors %>% mutate(index = orig_dates) %>%
+              pivot_longer(-index), by = "name") %>%
+  mutate(name = str_remove(name, "ts_")) %>%
+  group_by(name) %>%
+  mutate(value = value * sign) %>% ungroup() %>%
+  bind_rows(tibble(name = geo_name, inclusion = 1, pos_prob = 1, sign = 1,
+                   index = orig_dates, value = as.vector(orig_counts))) #%>%
+  # ggplot(aes(index, value)) +
+  # geom_line(aes(linetype = inclusion != 1, color = name, alpha = I(inclusion))) +
+  # geom_vline(xintercept = as.numeric(adj_eval_date), linetype = 2, alpha = 0.5) +
+  # theme(legend.position = "none", legend.title = element_blank()) +
+  # xlab(NULL) + ylab("count") + guides(linetype = "none")
+
+p <- main_plot +
+  geom_line(aes(index, value, color = name, alpha = inclusion),
+            data = mutate(peer_plot, index = as.numeric(index - min(index))) %>%
+              filter(inclusion != 1))
+
+ggplotly(p)
+```
+
+## Model analysis
+
+### US State level
+
+Below are some examples of this synthetic controls strategy where the dotted vertical line designates the point where the matching ends and the evaluation begins. Ignore the x-axis labels as they are actually relative to the beginning of the pandemic (as defined by being above a certain number of cases per million).
+
+![California, USA](US_1/output/ts_US_CA.png)
+![South Dakota, USA](US_1/output/ts_US_SD.png)
+
+Below is a table summarizing the results for each state:
+
+```{r}
+library(readr)
+read_csv("US_1/output/model_summary.csv") %>%
+  mutate(State = str_remove(ts_id, "US_")) %>%
+  left_join(data.frame(state.abb, state.name), by = c("State" = "state.abb")) %>%
+  mutate(state = coalesce(state.name, State)) %>%
+  select(state, deviance, AbsEffect_Cumulative, p_Cumulative) %>%
+  mutate(across(where(is.numeric), round, digits = 4)) %>%
+  arrange(desc(deviance), p_Cumulative) %>%
+  DT::datatable()
+```
+
+Guam, New York and Louisiana did better than their comparable counterparts in the last `r num_eval_months` months of the pandemic relative to the first `r num_match_months`. Most other significant states did worse.
+
+### US County level
+
+Here are a few highlighted counties:
+
+![Miami-Dade County, FL, USA](US_2/output/ts_US_FL_12086.png)
+
+![Philadelphia County, PA, USA](US_2/output/ts_US_PA_42101.png)
+
+![Scott County, IA, USA](US_2/output/ts_US_IA_19163.png)
+
+![Eaton County, MI, USA](US_2/output/ts_US_MI_26045.png)
+
+And the complete table of results:
+
+```{r}
+read_csv("US_2/output/model_summary.csv") %>%
+  left_join(
+    read_csv("https://raw.githubusercontent.com/kjhealy/fips-codes/master/county_fips_master.csv") %>%
+      mutate(ts_id = str_c("US_", state_abbr, "_", str_pad(fips, 5, "left", 0))),
+    by = c("ts_id")) %>%
+  select(fips = fips, County = county_name, State = state_abbr, deviance,
+         AbsEffect_Cumulative, p_Cumulative) %>%
+  mutate(across(where(is.numeric), round, digits = 4)) %>%
+  arrange(desc(deviance), p_Cumulative) %>%
+  mutate(County = str_conv(County, "ISO-8859-2")) %>%
+  DT::datatable()
+```
+
+We see here a handful of counties (17) seemed to handle the second wave of COVID better than the first.
+
+### Global country level
+
+Next is a global country level analysis. Below is Belgium and Poland:
+
+![Greece](GLOBAL_0/output/ts_GR.png)
+![Poland](GLOBAL_0/output/ts_PL.png)
+
+The complete table of results suggests very few better countries and a number of countries in Eastern Europe that struggled to respond to the second wave.
+
+```{r}
+read_csv("GLOBAL_0/output/model_summary.csv") %>%
+  left_join(
+  read_csv("https://pkgstore.datahub.io/core/country-list/data_csv/data/d7c9d7cfb42cb69f4422dec222dbbaa8/data_csv.csv"), by = c("ts_id" = "Code")) %>%
+  select(ts_id, Name, deviance, AbsEffect_Cumulative, p_Cumulative) %>%
+  mutate(across(where(is.numeric), round, digits = 4)) %>%
+  arrange(desc(deviance), p_Cumulative) %>%
+  DT::datatable()
+```
+
+We see here that only Trinidad and Tabago, Belgium and Iceland managed the second wave better with respect to their comparable peers in the first wave.
+
+##  Explaining the differences
+
+We try to predict these deviations from comparable counterfactuals to examine how much can additional variation can be explained by other factors.
+
+We explore the US country level data specifically since we have county level covariates we can correlate with the excess or lack of deaths compared to their constructed counterfactuals.
+
+```{r message=FALSE}
+cc_chr <- readr::read_csv("US_2/output/model_summary.csv") %>%
+  select(ts_id, AbsEffect_Cumulative) %>%
+  left_join(fst::read_fst("data/chr_covariates.fst"),
+            by = c("ts_id" = "geocode")) %>%
+  filter(!is.na(AbsEffect_Cumulative)) %>%
+  left_join(readr::read_csv("../covid-covariates/data/mit_elections.csv") %>% 
+              group_by(geocode) %>%
+              filter(year == max(year)) %>% ungroup() %>%
+              mutate(geocode = str_replace_all(geocode, "-", "_")) %>% 
+              select(geocode, ends_with("_candidatevotes")) %>%
+              mutate(across(everything(), ~ replace_na(.x, 0))),
+            by = c("ts_id" = "geocode")) %>%
+  mutate(across(ends_with("_candidatevotes"), ~ .x / population)) %>%
+  select(where(~ mean(is.na(.x)) < 0.01)) %>%
+  filter(complete.cases(.)) %>%
+  tibble::column_to_rownames("ts_id")
+```
+
+We try a number of models to predict deaths and examine the correlates for interesting **correlations**.
+
+### OLS
+
+```{r}
+(lm_mdl <- cc_chr %>%
+  lm(AbsEffect_Cumulative ~ ., data = .)) %>%
+  broom::tidy() %>%
+  arrange(p.value) %>%
+  select(term, estimate, p.value)
+```
+
+```{r}
+lm_mdl %>% broom::glance()
+```
+
+### Boom Spike/Slab
+
+```{r message=FALSE, warning=FALSE}
+ss_mdl <- BoomSpikeSlab::lm.spike(AbsEffect_Cumulative ~ ., niter = 10000,
+                                  data = cc_chr, ping = 1e10)
+ss_rsq <- summary(ss_mdl)$rsquare %>% .[["Mean"]] %>% setNames("rsquare")
+ss_mdl %>% plot("inclusion",
+                 inclusion.threshold = 0.5,
+                 main = paste("r-square:", round(ss_rsq, 2)))
+```
+
+### Random Forest
+
+```{r}
+ranger_mdl <- ranger::ranger(AbsEffect_Cumulative ~ .,
+                             data = cc_chr, importance = "impurity")
+
+ranger_mdl %>% ranger::importance() %>%
+  tibble(var = names(.), importance = .) %>%
+  top_n(9, importance) %>%
+  mutate(var = forcats::fct_reorder(var, importance)) %>%
+  ggplot(aes(var, importance)) + geom_bar(stat = "identity") +
+  coord_flip() + xlab(element_blank()) +
+  ggtitle(paste("r-square:", round(ranger_mdl$r.squared, 2))) +
+  theme_minimal()
+```
+
+```{r}
+top_vars <- ranger::importance(ranger_mdl) %>% sort %>% tail(9) %>% rev() %>% names()
+pdps <- lapply(top_vars, FUN = function(x) {
+  ranger_mdl %>%
+    pdp::partial(pred.var = x, train = cc_chr) %>%
+    pdp::plotPartial()
+})
+do.call(gridExtra::grid.arrange, c(pdps, ncol=3))
+```
+
+### LASSO
+
+```{r}
+cv_fit <- glmnet::cv.glmnet(as.matrix(cc_chr[,-1]), cc_chr[,1])
+plot(cv_fit)
+```
+  
+```{r message=FALSE, warning=FALSE}
+opt_fit <- glmnet::glmnet(as.matrix(cc_chr[,-1]), cc_chr[,1], lambda = cv_fit$lambda.min)
+paste("Deviance:", round(opt_fit$dev.ratio, 2))
+opt_coef <- coef(opt_fit)
+head(opt_coef[order(-abs(opt_coef)),], 9)
+```
+
+### Politics in play?
+
+We first run SuperLearner to estimate our response using a cross-validated ensemble model using all county level covariates apart from those that.
+
+```{r}
+library(SuperLearner)
+cc_nopol <- cc_chr %>% select(-ends_with("_candidatevotes"))
+
+sl_mdl <- CV.SuperLearner(cc_nopol[,1], cc_nopol[,-1],
+                          SL.library = c("SL.mean", "SL.glm", "SL.glmnet",
+                                         "SL.ranger"),
+                          family = gaussian(), V = 10, parallel = "multicore")
+plot(sl_mdl)
+paste("R2:", 1 - sum((cc_nopol[,1] - sl_mdl$SL.predict)^2) /
+        sum((cc_nopol[,1] - mean(cc_nopol[,1]))^2))
+```
+
+We then try to predict the remaining residual with our political measures:
+
+```{r}
+tibble(resid = cc_nopol[,1] - sl_mdl$SL.predict) %>%
+  bind_cols(select(cc_chr, ends_with("_candidatevotes"))) %>%
+  lm(resid ~ ., data = .) %>% summary()
+```
+
+Less than 1% of variation is independently explained by these political factors once we control for all the other county level beta %>%
+slice(-1:-burn) %>%
+pivot_longer(everything()) %>%
+group_by(name) %>%
+summarise(
+inclusion = mean(value != 0),
+pos_prob = if_else(all(value == 0), 0, mean(value[value != 0] > 0)),
+sign = if_else(pos_prob > 0.5, 1, -1)) %>%
+slice_max(inclusion, n = 5) %>%
+left_join(predictors %>% mutate(index = row_number()) %>%
+dplyr::select(-`(Intercept)`) %>%
+pivot_longer(-index), by = "name") %>%
+group_by(name) %>%
+mutate(value = scale(value) * sign) %>%
+ggplot(aes(index, value, color = name)) +
+geom_line() +
+theme(legend.title = element_blank(), legend.position = "bottom")
+beta %>%
+slice(-1:-burn) %>%
+pivot_longer(everything()) %>%
+group_by(name) %>%
+summarise(
+inclusion = mean(value != 0),
+pos_prob = if_else(all(value == 0), 0, mean(value[value != 0] > 0)),
+sign = if_else(pos_prob > 0.5, 1, -1)) %>%
+slice_max(inclusion, n = 5) %>%
+left_join(predictors %>% mutate(index = row_number()) %>%
+dplyr::select(-`(Intercept)`) %>%
+pivot_longer(-index), by = "name") %>%
+group_by(name) %>%
+mutate(value = scale(value) * sign) %>%
+ggplot(aes(index, value, color = name)) +
+geom_line() +
+theme(legend.title = element_blank(), legend.position = "bottom")
+predictors. The coefficient values themselves are not significant with a very slight negative, significant estimate on democratic vote share.
+
+#### Without controls
+
+If we were to do the same without the first step of removing variation accordingly to other factors:
+
+```{r}
+cc_chr %>%
+  select(AbsEffect_Cumulative, ends_with("_candidatevotes")) %>%
+  lm(AbsEffect_Cumulative ~ ., data = .) %>%
+  summary()
+```
+
+We find about 8% of the variation is explained by these political measures with significant positive estimates for republican and "other" candidate votes and a negative democrat assocatied effect.
+
+##  Vaccination rates and 2020 election voting
+
+Getting data on per state vaccinations, election results, and election turnout.
+
+```{r message=FALSE, warning=FALSE}
+library(readr)
+vaccines <- readr::read_csv("https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/vaccinations/us_state_vaccinations.csv") %>%
+  group_by(location) %>%
+  filter(date == max(date)) %>%
+  ungroup() %>%
+  mutate(state = str_remove(str_to_upper(location), " STATE$")) %>%
+  select(state, people_vaccinated_per_hundred)
+
+election <- readr::read_csv("https://dataverse.harvard.edu/api/access/datafile/4299753?format=original&gbrecs=true") %>%
+  filter(year == 2020) %>%
+  pivot_wider(id_cols = c(state, totalvotes),
+              names_from = party_simplified,
+              values_from = candidatevotes,
+              values_fn = sum)
+
+turnout <- read_csv("data/2020_election_turnout.csv", skip = 1) %>%
+  mutate(state = str_remove(str_to_upper(X1), "\\*")) %>%
+  select(state, vep = `Voting-Eligible Population (VEP)`)
+ 
+covid <- comp_sets %>% filter(set == "US_1") %>%
+  group_by(ts_id) %>%
+  arrange(desc(date)) %>%
+  filter(row_number() <= 15) %>%
+  summarise(across(count, sum)) %>%
+  mutate(state.abb = str_sub(ts_id, 4, 5)) %>%
+  left_join(tibble(state.name, state.abb) %>%
+              bind_rows(list(state.name = "District of Columbia", state.abb = "DC")) %>% 
+              mutate(across(state.name, str_to_upper)), by = "state.abb") %>%
+  select(state = state.name, covid = count) %>%
+  filter(!is.na(state))
+
+supply <- read_csv("https://data.cdc.gov/api/views/saz5-9hgg/rows.csv?accessType=DOWNLOAD") %>%
+  mutate(across(`Week of Allocations`, mdy)) %>%
+  set_names(c("state", "week", "dose1", "dose2")) %>%
+  mutate(state = case_when(state == "Chicago" ~ "ILLINOIS",
+                           state == "New York City" ~ "NEW YORK",
+                           state == "Philadelphia" ~ "PENNSYLVANIA",
+                           TRUE ~ str_to_upper(state))) %>% group_by(state) %>% 
+  summarise(across(starts_with("dose"), sum)) %>%
+  filter(dose2 != 0)
+```
+
+Run the regression!
+
+```{r}
+vaccines %>%
+  left_join(election, by = "state") %>%
+  left_join(turnout, by = "state") %>%
+  left_join(covid, by = "state") %>%
+  left_join(supply, by = "state") %>%
+  replace_na(list(LIBERTARIAN = 0, OTHER = 0)) %>%
+  filter(complete.cases(.)) %>%
+  mutate(across(-c(vep, people_vaccinated_per_hundred, state), ~ .x / vep)) %>%
+  select(-vep, -totalvotes, -dose2) %>%
+  tibble::column_to_rownames("state") %>%
+  mutate(residuals = lm(people_vaccinated_per_hundred ~ covid + dose1, data = .) %>%
+           residuals()) %>%
+  select(-covid, -people_vaccinated_per_hundred, -dose1) %>%
+  # rowwise() %>%
+  # mutate(winning_party = factor(which.max(c_across(-residuals)),
+  #                               levels = c("1", "2", "3"),
+  #                               labels = c("D", "R", "L"))) %>%
+  # lm(residuals ~ winning_party, data = .) %>%
+  lm(residuals ~ ., data = .) %>%
+  summary()
+```
+
+This is after controlling for covid severity (deaths per capita from the last 10 weeks). Democrats leading the way on vaccinations, with significance.
+
+

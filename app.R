@@ -29,6 +29,14 @@ loc_list <- all_locs %>% filter(stat == "new_deceased") %>%
 init_locs <- sample(loc_list$location, 3)
 cur_locs <- init_locs
 
+# for tscomp
+tscomp_summary <- readr::read_rds("tscomp_summary.rds")
+set_names <- unique(tscomp_summary$set_name) 
+
+# set_names <- c("GLOBAL_0", fs::dir_ls(regexp = "^[A-Z]{2}_"))
+default_set_name <- "GLOBAL_0"
+# mdl_data <- readr::read_rds(fs::path(default_set_name, "group_timeseries_model.rds"))
+
 compare_metrics <- c("deaths" = "total_deceased", "cases" = "total_confirmed",
                      "tests" = "total_tested")
 
@@ -37,7 +45,8 @@ options(scipen = 999, digits = 1)
 
 ui <- function(request) {
   mobile_req <- is_mobile(request$HTTP_USER_AGENT)
-  fluidPage(
+ 
+  dashboard_panel <- fluidPage(
     #shinyjs::useShinyjs(), # for moving showcase code to the bottom
     shinybusy::add_busy_bar(color = "CornflowerBlue", timeout = 800),
     titlePanel("Covid-19 comparisons"),
@@ -127,6 +136,47 @@ ui <- function(request) {
       )
     )
   )
+
+  analysis_panel <- fluidPage(
+    shinybusy::add_busy_bar(color = "CornflowerBlue", timeout = 800),
+    titlePanel("Covid-19 analysis"),
+    tags$a(
+      href = "https://github.com/roboton/covid-compare",
+      target = "_blank", "[git]"),
+    tags$a(
+      href = "mailto:roberton@gmail.com",
+      target = "_blank", "[contact]"),
+    tags$span(paste(" Last updated",
+                    round(as.numeric(now() - last_update, units = "hours"), 2),
+                    "hours ago")),
+    sidebarLayout(
+      sidebarPanel(
+        # data options
+        selectizeInput(
+          "set_name", "Geo set", choices = set_names, multiple = FALSE,
+          selected = default_set_name,
+          options = list(placeholder = 'type to select a geo set')),
+        selectizeInput(
+          "geo_name", "Geo sub-unit", choices = NULL, multiple = FALSE,
+          options = list(placeholder = 'type to select a geo sub-unit')),
+        checkboxInput("show_peers",
+                      "Show comparables", value = FALSE),
+        bookmarkButton(),
+        width = 2
+      ),
+      mainPanel(
+        plotlyOutput(
+          "tsCompPlot",
+          width = if_else(mobile_req, "auto", "auto"),
+          height = if_else(mobile_req, "auto", "auto")
+        )
+      )
+    )
+  )
+ 
+  navbarPage("covidcompare.org", position = "fixed-bottom",
+             tabPanel("Dashboard", dashboard_panel),
+             tabPanel("Analysis", analysis_panel))
 } 
    
 server <- function(input, output, session) {
@@ -173,6 +223,34 @@ server <- function(input, output, session) {
                          as_tibble(), file)
     }
   )
+  
+  observeEvent(input$set_name, {
+    geo_names <- tscomp_summary %>%
+      filter(set_name == input$set_name) %>%
+      arrange(p_Cumulative) %>%
+      select(name = geo_name, effect = RelEffect_Cumulative,
+             pvalue = p_Cumulative) %>%
+      mutate(label = if_else(rep(input$set_name == default_set_name,
+                                 length(name)),
+                             countryCodeToName(name),
+                      str_remove(name, "^[A-Z][A-Z]_")),
+             effect = round(effect * 100)) %>%
+      mutate(label = str_glue("{label} ({round(effect)})"))
+
+    geo_name <- sample(geo_names$name, 1, prob = 1 - geo_names$pvalue)
+    updateSelectizeInput(session, "geo_name",
+                         choices = setNames(geo_names$name, geo_names$label),
+                         selected = geo_name, server = TRUE)
+    
+  })
+  
+  output$tsCompPlot <- renderPlotly({
+    if (input$geo_name == "") {
+      return(empty_plot("Select Geo sub-unit"))
+    }
+    readr::read_rds(fs::path(input$set_name, "tscomp", input$geo_name,
+                             ext = "rds"))
+  })
   
   # server side location selectize
   updateSelectizeInput(session, "location", choices = loc_list$location,

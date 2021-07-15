@@ -78,8 +78,9 @@ fetchPrepGoogData <- function(period = "week", per_million = TRUE,
         unite(location, name, key, sep = " ")
       } else {
         rename(., location = key) %>%
-          select(-ends_with("_name"))
-      } } %>%
+        select(-ends_with("_name"))
+      }
+    } %>%
     mutate(location = as.factor(location)) %>%
     # compute period stats
     mutate(date = floor_date(date, period)) %>%
@@ -259,4 +260,113 @@ genPlotComps <- function(
     show_legend = show_legend,
     ncol = ncol) %>%
     cleanPlotly()
+}
+
+# getSubGeoNames <- function(set_name) {
+#   set_names <- c("GLOBAL_0", fs::dir_ls(regexp = "^[A-Z]{2}_"))
+#   # set choice
+#   set_name <- sample(set_names, 1)
+#   mdl_data <- read_rds(fs::path(set_name, "group_timeseries_model.rds"))
+#   
+#   geo_names <- tibble(
+#     name = names(mdl_data),
+#     cumrel_effect = map_dbl(mdl_data, ~ .x$summary["Cumulative", "RelEffect"])) %>%
+#     arrange(desc(abs(cumrel_effect)))
+#   
+#   # geo choice
+#   geo_name <- str_remove(
+#     sample(geo_names$name, 1, prob = abs(geo_names$cumrel_effect)),
+#     "ts_")
+# }
+
+countryCodeToName <- function(geo_name) {
+  return(countrycode::countrycode(geo_name, "iso2c", "cldr.name.en",
+                                  custom_match = c("XK" = "Kosovo")))
+}
+
+genTsCompPlot <- function(set_name, geo_name, cur_mdl,
+                          show_peers = FALSE, num_peers = 5, scale_peers = TRUE,
+                          output_plotly = TRUE) {
+  
+  # TODO(robon): clean this up (fixed model parameters)
+  num_match_months <- 6
+  num_eval_months <- 6
+  # time "zero" without actual reference to a specific date (b/c of re-alignment)
+  base_date <- ymd("2020-01-01")
+  eval_date <- base_date + months(num_match_months)
+
+  full_geo_name <- ifelse(set_name == "GLOBAL_0",
+                          countryCodeToName(geo_name), geo_name)
+  
+  orig_counts <- as.vector(cur_mdl$series$response)
+  orig_dates <- zoo::index(cur_mdl$series$response)
+  main_plot <- cur_mdl$series %>% broom::tidy() %>%
+    mutate(series_type = case_when(str_ends(series, ".lower") ~ "lower",
+                                   str_ends(series, ".upper") ~ "upper",
+                                   TRUE ~ "value"),
+           series = str_remove(series, "(.lower)|(.upper)"),
+           series = if_else(series == "response", "point.response", series)) %>%
+    pivot_wider(names_from = series_type, values_from = value) %>%
+    separate(series, c("cumulative", "type")) %>%
+    mutate(cumulative = if_else(cumulative == "cum", "cumulative", "point"),
+           plot_group = if_else(type == "effect", "effect", "response"),
+           predicted = if_else(is.na(lower), "actual", "predicted"),
+           across(c(lower, upper), ~ if_else(is.na(.x), value, .x)),
+           # index = index + diff_days,
+           label = str_c(cumulative, plot_group, sep = " ")) %>%
+    filter(label == "point response") %>%
+    mutate(index = as.numeric(index - min(index), unit = "days")) %>%
+    ggplot(aes(index, value)) +
+    geom_vline(xintercept = as.numeric(eval_date - base_date), linetype = 2, alpha = 0.5) +
+    geom_ribbon(aes(ymin = lower, ymax = upper, linetype = predicted), alpha = 0.2) +
+    geom_line((aes(linetype = predicted))) +
+    ggtitle(full_geo_name) +
+    xlab("days since") + ylab("count") +
+    theme_minimal() +
+    theme(legend.title = element_blank())
+  
+  if (show_peers) {
+    bsts.object <- cur_mdl$model$bsts.model
+    if (is.null(bsts.object)) {
+      warning(paste("BSTS failed to compute for", geo_name))
+    } else {
+      burn <- bsts::SuggestBurn(0.1, bsts.object)
+      beta <- as_tibble(bsts.object$coefficients)
+      predictors <- as_tibble(bsts.object$predictors)
+    
+      peer_plot <- beta %>%
+        as_tibble() %>%
+        slice(-1:-burn) %>%
+        pivot_longer(everything()) %>%
+        group_by(name) %>%
+        summarise(
+          inclusion = mean(value != 0),
+          pos_prob = if_else(all(value == 0), 0, mean(value[value != 0] > 0)),
+          sign = if_else(pos_prob > 0.5, 1, -1)) %>%
+        slice_max(inclusion, n = num_peers) %>%
+        left_join(predictors %>% mutate(index = orig_dates) %>%
+                    pivot_longer(-index), by = "name") %>%
+        mutate(name = str_remove(name, "ts_")) %>%
+        group_by(name) %>%
+        mutate(value = value * sign) %>% ungroup() %>%
+        bind_rows(tibble(name = geo_name, inclusion = 1, pos_prob = 1, sign = 1,
+                         index = orig_dates, value = as.vector(orig_counts))) %>%
+        { if (scale_peers) mutate(., value = as.vector(scale(value))) else . } %>%
+        mutate(index = as.numeric(index - min(index))) %>%
+        ggplot(aes(index, value, color = name, alpha = inclusion)) +
+        geom_vline(xintercept = as.numeric(eval_date - base_date), linetype = 2,
+                   alpha = 0.5) +
+        geom_line() +
+        theme_minimal() +
+        theme(legend.title = element_blank())
+        
+      main_plot <- subplot(main_plot, peer_plot, shareX = TRUE, nrows = 2)
+    }
+  }
+
+  if (output_plotly) {
+    return(ggplotly(main_plot))
+  } else {
+    return(main_plot)
+  }
 }
