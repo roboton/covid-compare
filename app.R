@@ -33,9 +33,7 @@ cur_locs <- init_locs
 tscomp_summary <- readr::read_rds("tscomp_summary.rds")
 set_names <- unique(tscomp_summary$set_name) 
 
-# set_names <- c("GLOBAL_0", fs::dir_ls(regexp = "^[A-Z]{2}_"))
 default_set_name <- "GLOBAL_0"
-# mdl_data <- readr::read_rds(fs::path(default_set_name, "group_timeseries_model.rds"))
 
 compare_metrics <- c("deaths" = "total_deceased", "cases" = "total_confirmed",
                      "tests" = "total_tested")
@@ -159,8 +157,6 @@ ui <- function(request) {
         selectizeInput(
           "geo_name", "Geo sub-unit", choices = NULL, multiple = FALSE,
           options = list(placeholder = 'type to select a geo sub-unit')),
-        checkboxInput("show_peers",
-                      "Show comparables", value = FALSE),
         bookmarkButton(),
         width = 2
       ),
@@ -228,13 +224,8 @@ server <- function(input, output, session) {
     geo_names <- tscomp_summary %>%
       filter(set_name == input$set_name) %>%
       arrange(p_Cumulative) %>%
-      select(name = geo_name, effect = RelEffect_Cumulative,
+      select(name = geo_name, label, effect = AbsEffect_Cumulative,
              pvalue = p_Cumulative) %>%
-      mutate(label = if_else(rep(input$set_name == default_set_name,
-                                 length(name)),
-                             countryCodeToName(name),
-                      str_remove(name, "^[A-Z][A-Z]_")),
-             effect = round(effect * 100)) %>%
       mutate(label = str_glue("{label} ({round(effect)})"))
 
     geo_name <- sample(geo_names$name, 1, prob = 1 - geo_names$pvalue)
@@ -254,6 +245,8 @@ server <- function(input, output, session) {
   
   # server side location selectize
   updateSelectizeInput(session, "location", choices = loc_list$location,
+                       selected = sample(loc_list$location, 5,
+                                         prob = loc_list$severity_total),
                        server = TRUE)
   
   # ensure we don't overwrite bookmark locations with default

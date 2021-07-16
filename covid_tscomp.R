@@ -2,10 +2,11 @@ source("covidcomp_lib.R", local = TRUE)
 
 ## analysis parameters
 
-refresh_tscomp <- FALSE
+refresh_tscomp <- TRUE
+refresh_data <- TRUE
 # how many months to match on before evaluating
 num_match_months <- 6
-num_eval_months <- 6
+num_eval_months <- 8
 # significance for CausalImpact
 sig_p <- 0.05
 # aggregate to this level of data
@@ -29,10 +30,11 @@ end_date <- eval_date + months(num_eval_months)
 
 fst_file <- paste0("data/comp_data_", death_thresh, floor_date(today(), "week"),
                    ".fst")
-if (file.exists(fst_file)) {
+if (file.exists(fst_file) && !refresh_data) {
   comp_data <- fst::read_fst(fst_file) 
 } else {
-  comp_data <- fetchPrepGoogData(period = period, readable_loc = FALSE) %>%
+  comp_data <- fetchPrepGoogData(period = period, readable_loc = FALSE,
+                                 add_labels = TRUE, use_cache = FALSE) %>%
     genCompData(min_thresh = death_thresh, per_million = TRUE,
                 min_stat = "total_deceased", keep_pop = TRUE) %>%
     fst::write_fst(fst_file)
@@ -107,6 +109,11 @@ tscomp_summary <- map_dfr(set_names, function(set_name) {
       tibble::rownames_to_column("stat_type")
   })
 }) %>% pivot_wider(names_from = stat_type,
-                   values_from = -c(set_name, geo_name, stat_type))
+                   values_from = -c(set_name, geo_name, stat_type)) %>%
+  left_join(comp_data %>%
+              select(label, geo_name = location) %>% distinct(),
+            by = geo_name) %>%
+  select(set_name, geo_name, label, everything()) %>%
+  mutate(label = str_replace_all(label, "United States of America", "USA"))
 
 readr::write_rds(tscomp_summary, "tscomp_summary.rds")

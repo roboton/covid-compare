@@ -33,9 +33,12 @@ is_mobile <- function(user_agent, mobile_os = c("Android", "iOS")) {
 
 # Generate source data
 fetchPrepGoogData <- function(period = "week", per_million = TRUE,
-                              readable_loc = TRUE) {
+                              readable_loc = TRUE, add_labels = FALSE,
+                              use_cache = FALSE) {
+  goog_file <- "https://storage.googleapis.com/covid19-open-data/v2/main.csv"
+  if (use_cache) goog_file <- "data/main.csv.1"
   vroom::vroom(
-    "https://storage.googleapis.com/covid19-open-data/v2/main.csv",
+    goog_file,
     col_select = c(date, key,
                    total_tested,
                    total_confirmed,
@@ -71,8 +74,13 @@ fetchPrepGoogData <- function(period = "week", per_million = TRUE,
                   country_name = "c"),
     num_threads = 16) %>%
     # create name
+    { if (add_labels) {
+        unite(., label, ends_with("_name"), sep = ", ", na.rm = TRUE) %>%
+        mutate(label = str_c(label, str_remove(key, "^.*_"), sep = " "))
+      } else { . }
+    } %>%
     { if (readable_loc) {
-      unite(., name, ends_with("_name"), sep = ", ", na.rm = TRUE) %>%
+        unite(., name, ends_with("_name"), sep = ", ", na.rm = TRUE) %>%
         # append most granular identifier 
         mutate(key = str_remove(key, "^.*_")) %>%
         unite(location, name, key, sep = " ")
@@ -85,7 +93,7 @@ fetchPrepGoogData <- function(period = "week", per_million = TRUE,
     # compute period stats
     mutate(date = floor_date(date, period)) %>%
     lazy_dt(key_by = c(location, date)) %>%
-    group_by(location, date) %>%
+    group_by(across(any_of(c("location", "date", "label")))) %>%
     arrange(location, date) %>%
     summarise(
       across(starts_with("total_"), ~ last(na.omit(.x))),
@@ -107,7 +115,7 @@ fetchPrepGoogData <- function(period = "week", per_million = TRUE,
                                           starts_with("new_")),
                                         ~ .x / population * 1e6)) else . } %>%
     collect() %>%
-    pivot_longer(c(-date, -location, -population),
+    pivot_longer(-any_of(c("date", "location", "label", "population")),
                  names_to = "stat", values_to = "value") %>%
     mutate(stat = as.factor(stat)) %>%
     filter(is.finite(value) & !is.na(location)) %>%
@@ -146,10 +154,14 @@ genCompData <- function(df, min_stat = "total_deceased",  min_thresh = 1,
     { if("deceased" %in% stats_available && "intensive_care" %in% stats_available)
       mutate(., icu_fatality_rate = deceased / intensive_care) else . } %>%
     { if(!keep_pop) {
-      pivot_longer(., c(-location, -date, -value_type, -days_since),
+      pivot_longer(.,
+                   -any_of(c("location", "label", "date", "value_type",
+                             "days_since")),
                    names_to = "stat", values_to = "value")
     } else {
-      pivot_longer(., c(-location, -population, -date, -value_type, -days_since),
+      pivot_longer(.,
+                   -any_of(c("location", "population", "label", "date",
+                             "value_type", "days_since")),
                    names_to = "stat", values_to = "value")
     } }
 }
@@ -321,7 +333,8 @@ genTsCompPlot <- function(set_name, geo_name, cur_mdl,
     geom_ribbon(aes(ymin = lower, ymax = upper, linetype = predicted), alpha = 0.2) +
     geom_line((aes(linetype = predicted))) +
     ggtitle(full_geo_name) +
-    xlab("days since") + ylab("count") +
+    ylab("deaths count") +
+    xlab("days since first outbreak") +
     theme_minimal() +
     theme(legend.title = element_blank())
   
@@ -358,6 +371,8 @@ genTsCompPlot <- function(set_name, geo_name, cur_mdl,
                    alpha = 0.5) +
         geom_line() +
         theme_minimal() +
+        ylab("scaled deaths count") +
+        xlab("days since first outbreak") +
         theme(legend.title = element_blank())
         
       main_plot <- subplot(main_plot, peer_plot, shareX = TRUE, nrows = 2)
