@@ -298,7 +298,7 @@ countryCodeToName <- function(geo_name) {
 
 genTsCompPlot <- function(set_name, geo_name, cur_mdl,
                           show_peers = FALSE, num_peers = 5, scale_peers = TRUE,
-                          output_plotly = TRUE) {
+                          output_plotly = TRUE, geo_name_full = NULL) {
   
   # TODO(robon): clean this up (fixed model parameters)
   num_match_months <- 6
@@ -307,8 +307,9 @@ genTsCompPlot <- function(set_name, geo_name, cur_mdl,
   base_date <- ymd("2020-01-01")
   eval_date <- base_date + months(num_match_months)
 
-  full_geo_name <- ifelse(set_name == "GLOBAL_0",
-                          countryCodeToName(geo_name), geo_name)
+  if(is.null(geo_name_full)) {
+    geo_name_full <- geo_name
+  }
   
   orig_counts <- as.vector(cur_mdl$series$response)
   orig_dates <- zoo::index(cur_mdl$series$response)
@@ -332,7 +333,7 @@ genTsCompPlot <- function(set_name, geo_name, cur_mdl,
     geom_vline(xintercept = as.numeric(eval_date - base_date), linetype = 2, alpha = 0.5) +
     geom_ribbon(aes(ymin = lower, ymax = upper, linetype = predicted), alpha = 0.2) +
     geom_line((aes(linetype = predicted))) +
-    ggtitle(full_geo_name) +
+    ggtitle(geo_name_full) +
     ylab("deaths count") +
     xlab("days since first outbreak") +
     theme_minimal() +

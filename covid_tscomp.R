@@ -4,6 +4,7 @@ source("covidcomp_lib.R", local = TRUE)
 
 refresh_tscomp <- TRUE
 refresh_data <- TRUE
+refresh_plots <- TRUE
 # how many months to match on before evaluating
 num_match_months <- 6
 num_eval_months <- 8
@@ -81,39 +82,47 @@ if (refresh_tscomp) {
 
 ## create plots
 
-set_names <- unique(comp_sets$set)
-tscomp_summary <- map_dfr(set_names, function(set_name) {
-  
-  print(set_name)
-  tsc_dir <- fs::path(set_name, "tscomp")
-  fs::dir_create(tsc_dir, recurse = TRUE)
-  
-  mdl_data <- readr::read_rds(fs::path(set_name, "group_timeseries_model.rds"))
-  geo_names <- names(mdl_data)
+if (refresh_plots) {
+  loc_list <- comp_data %>%
+    select(label, geo_name = location) %>% distinct()
 
-  map_dfr(geo_names, function(geo_name) {
-    print(geo_name)
-    cur_mdl <- mdl_data[[geo_name]]
-    geo_name_short <- str_remove(geo_name, "ts_")
-    tsc_plot <- genTsCompPlot(set_name, geo_name_short, cur_mdl,
-                              output_plotly = FALSE, show_peers = TRUE)
-    tsc_file <- fs::path(tsc_dir, geo_name_short, ext = "rds")
-    readr::write_rds(tsc_plot, tsc_file)
-    # return(tsc_file)
-    geo_mdl <- mdl_data[[geo_name]]
-    if (is.null(geo_mdl$summary)) {
-      return(NULL)
-    }
-    geo_mdl$summary %>%
-      mutate(set_name = set_name, geo_name = geo_name_short) %>%
-      tibble::rownames_to_column("stat_type")
-  })
-}) %>% pivot_wider(names_from = stat_type,
-                   values_from = -c(set_name, geo_name, stat_type)) %>%
-  left_join(comp_data %>%
-              select(label, geo_name = location) %>% distinct(),
-            by = geo_name) %>%
-  select(set_name, geo_name, label, everything()) %>%
-  mutate(label = str_replace_all(label, "United States of America", "USA"))
-
-readr::write_rds(tscomp_summary, "tscomp_summary.rds")
+  library(furrr)
+  plan(multisession, workers = round(availableCores() - 2))
+  set_names <- unique(comp_sets$set)
+  
+  tscomp_summary <- future_map_dfr(set_names, function(set_name) {
+    print(set_name)
+    tsc_dir <- fs::path(set_name, "tscomp")
+    fs::dir_create(tsc_dir, recurse = TRUE)
+      
+    mdl_data <- readr::read_rds(fs::path(set_name, "group_timeseries_model.rds"))
+    geo_names <- names(mdl_data)
+    
+    map_dfr(geo_names, function(geo_name) {
+      print(geo_name)
+      cur_mdl <- mdl_data[[geo_name]]
+      geo_name_short <- str_remove(geo_name, "ts_")
+      geo_name_full <- loc_list$label[loc_list$geo_name == geo_name_short] 
+      tsc_plot <- genTsCompPlot(set_name, geo_name_short, cur_mdl,
+                                output_plotly = FALSE, show_peers = TRUE,
+                                geo_name_full = geo_name_full)
+      tsc_file <- fs::path(tsc_dir, geo_name_short, ext = "rds")
+      readr::write_rds(tsc_plot, tsc_file)
+      # return(tsc_file)
+      geo_mdl <- mdl_data[[geo_name]]
+      if (is.null(geo_mdl$summary)) {
+        return(NULL)
+      }
+      geo_mdl$summary %>%
+        mutate(set_name = set_name, geo_name = geo_name_short) %>%
+        tibble::rownames_to_column("stat_type")
+    })
+  }, .options = furrr_options(seed = TRUE)) %>%
+    pivot_wider(names_from = stat_type,
+                values_from = -c(set_name, geo_name, stat_type)) %>%
+    left_join(loc_list, by = "geo_name") %>%
+    select(set_name, geo_name, label, everything()) %>%
+    mutate(label = str_replace_all(label, "United States of America", "USA"))
+  
+  readr::write_rds(tscomp_summary, "tscomp_summary.rds")
+}

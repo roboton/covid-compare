@@ -32,6 +32,10 @@ cur_locs <- init_locs
 # for tscomp
 tscomp_summary <- readr::read_rds("tscomp_summary.rds")
 set_names <- unique(tscomp_summary$set_name) 
+set_labels <- tibble(set_names) %>%
+  separate(set_names, c("name", "level")) %>%
+  mutate(label = str_glue("{name} (level {level})")) %>%
+  pull(label)
 
 default_set_name <- "GLOBAL_0"
 
@@ -151,7 +155,9 @@ ui <- function(request) {
       sidebarPanel(
         # data options
         selectizeInput(
-          "set_name", "Geo set", choices = set_names, multiple = FALSE,
+          "set_name", "Geo set",
+          choices = setNames(set_names, set_labels),
+          multiple = FALSE,
           selected = default_set_name,
           options = list(placeholder = 'type to select a geo set')),
         selectizeInput(
@@ -245,7 +251,7 @@ server <- function(input, output, session) {
   
   # server side location selectize
   updateSelectizeInput(session, "location", choices = loc_list$location,
-                       selected = sample(loc_list$location, 5,
+                       selected = sample(loc_list$location, 3,
                                          prob = loc_list$severity_total),
                        server = TRUE)
   
