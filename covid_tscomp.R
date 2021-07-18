@@ -2,8 +2,8 @@ source("covidcomp_lib.R", local = TRUE)
 
 ## analysis parameters
 
-refresh_tscomp <- TRUE
 refresh_data <- TRUE
+refresh_tscomp <- TRUE
 refresh_plots <- TRUE
 # how many months to match on before evaluating
 num_match_months <- 6
@@ -29,8 +29,8 @@ end_date <- eval_date + months(num_eval_months)
 
 ## load covid data
 
-fst_file <- paste0("data/comp_data_", death_thresh, floor_date(today(), "week"),
-                   ".fst")
+fst_file <- fs::path("data", str_c("comp_data_", death_thresh,
+                                   floor_date(today(), "week")), ext = "fst")
 if (file.exists(fst_file) && !refresh_data) {
   comp_data <- fst::read_fst(fst_file) 
 } else {
@@ -69,15 +69,19 @@ if (refresh_tscomp) {
   plan(multisession, workers = round(availableCores() - 2))
   
   out_dirs <- future_map_chr(
-    group_split(comp_sets, set),
-    ~ tscompare::ts_analysis(.x, group_id = first(.x$set),
-                             start_date = {{eval_date}},
-                             period = period, min_pre_periods = 0,
-                             min_post_periods = 0,
-                             min_timeseries = {{min_locs}},
-                             sig_p = {{sig_p}},
-                             gen_output = FALSE),
-    .options = furrr_options(seed = TRUE))
+    # group_split(comp_sets, set),
+    group_split(comp_sets, set), function(.x) {
+      orig_wd <- fs::path_wd()
+      setwd("data/sets")
+      out_dir <- tscompare::ts_analysis(.x, group_id = first(.x$set),
+                                        start_date = {{eval_date}},
+                                        period = period, min_pre_periods = 0,
+                                        min_post_periods = 0,
+                                        min_timeseries = {{min_locs}},
+                                        sig_p = {{sig_p}},
+                                        gen_output = FALSE)
+      setwd(orig_wd)
+      }, .options = furrr_options(seed = TRUE))
 }
 
 ## create plots
@@ -87,15 +91,20 @@ if (refresh_plots) {
     select(label, geo_name = location) %>% distinct()
 
   library(furrr)
-  plan(multisession, workers = round(availableCores() - 2))
+  max_workers <- availableCores() - 2
+  plan(multisession, workers = max_workers)
+  
   set_names <- unique(comp_sets$set)
   
   tscomp_summary <- future_map_dfr(set_names, function(set_name) {
     print(set_name)
-    tsc_dir <- fs::path(set_name, "tscomp")
+    tsc_dir <- fs::path("data", "sets", set_name, "tscomp")
     fs::dir_create(tsc_dir, recurse = TRUE)
       
-    mdl_data <- readr::read_rds(fs::path(set_name, "group_timeseries_model.rds"))
+    mdl_rds_file <- fs::path("data", "sets", set_name, "group_timeseries_model",
+                             ext = "rds")
+    
+    mdl_data <- readr::read_rds(mdl_rds_file)
     geo_names <- names(mdl_data)
     
     map_dfr(geo_names, function(geo_name) {
@@ -106,6 +115,8 @@ if (refresh_plots) {
       tsc_plot <- genTsCompPlot(set_name, geo_name_short, cur_mdl,
                                 output_plotly = FALSE, show_peers = TRUE,
                                 geo_name_full = geo_name_full)
+      # reduce file size
+      tsc_plot$x[c("attrs", "visdat", "cur_data")] <- NULL
       tsc_file <- fs::path(tsc_dir, geo_name_short, ext = "rds")
       readr::write_rds(tsc_plot, tsc_file)
       # return(tsc_file)
@@ -124,5 +135,6 @@ if (refresh_plots) {
     select(set_name, geo_name, label, everything()) %>%
     mutate(label = str_replace_all(label, "United States of America", "USA"))
   
-  readr::write_rds(tscomp_summary, "tscomp_summary.rds")
+  ts_sum_file <- fs::path("data/sets", "tscomp_summary", ext = "rds")
+  readr::write_rds(tscomp_summary, ts_sum_file)
 }

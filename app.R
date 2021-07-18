@@ -30,11 +30,12 @@ init_locs <- sample(loc_list$location, 3)
 cur_locs <- init_locs
 
 # for tscomp
-tscomp_summary <- readr::read_rds("tscomp_summary.rds")
+tscomp_summary <- readr::read_rds("data/sets/tscomp_summary.rds")
 set_names <- unique(tscomp_summary$set_name) 
 set_labels <- tibble(set_names) %>%
   separate(set_names, c("name", "level")) %>%
-  mutate(label = str_glue("{name} (level {level})")) %>%
+  mutate(name = if_else(name != "GLOBAL", countryCodeToName(name), name),
+         label = str_glue("{name} (level {level})")) %>%
   pull(label)
 
 default_set_name <- "GLOBAL_0"
@@ -155,15 +156,14 @@ ui <- function(request) {
       sidebarPanel(
         # data options
         selectizeInput(
-          "set_name", "Geo set",
+          "set_name", "Country/Global",
           choices = setNames(set_names, set_labels),
           multiple = FALSE,
           selected = default_set_name,
-          options = list(placeholder = 'type to select a geo set')),
+          options = list(placeholder = 'type to select a country')),
         selectizeInput(
-          "geo_name", "Geo sub-unit", choices = NULL, multiple = FALSE,
-          options = list(placeholder = 'type to select a geo sub-unit')),
-        bookmarkButton(),
+          "geo_name", "Division", choices = NULL, multiple = FALSE,
+          options = list(placeholder = 'type to select a division')),
         width = 2
       ),
       mainPanel(
@@ -177,8 +177,8 @@ ui <- function(request) {
   )
  
   navbarPage("covidcompare.org", position = "fixed-bottom",
-             tabPanel("Dashboard", dashboard_panel),
-             tabPanel("Analysis", analysis_panel))
+             tabPanel("Analysis", analysis_panel),
+             tabPanel("Dashboard", dashboard_panel))
 } 
    
 server <- function(input, output, session) {
@@ -242,11 +242,11 @@ server <- function(input, output, session) {
   })
   
   output$tsCompPlot <- renderPlotly({
-    if (input$geo_name == "") {
-      return(empty_plot("Select Geo sub-unit"))
+    if (input$geo_name == "" | input$set_name == "") {
+      return(empty_plot("select division"))
     }
-    readr::read_rds(fs::path(input$set_name, "tscomp", input$geo_name,
-                             ext = "rds"))
+    readr::read_rds(fs::path("data", "sets", input$set_name, "tscomp",
+                             input$geo_name, ext = "rds"))
   })
   
   # server side location selectize
