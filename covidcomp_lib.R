@@ -34,11 +34,15 @@ is_mobile <- function(user_agent, mobile_os = c("Android", "iOS")) {
 # Generate source data
 fetchPrepGoogData <- function(period = "week", per_million = TRUE,
                               readable_loc = TRUE, add_labels = FALSE,
-                              use_cache = FALSE) {
-  goog_file <- "https://storage.googleapis.com/covid19-open-data/v2/main.csv"
-  if (use_cache) goog_file <- "data/main.csv.1"
+                              use_cache = FALSE, add_vax = FALSE) {
+  main_file <- "https://storage.googleapis.com/covid19-open-data/v2/main.csv"
+  vax_file <- "https://storage.googleapis.com/covid19-open-data/v3/vaccinations.csv"
+  if (use_cache) {
+    main_file <- "data/main.csv"
+    vax_file <- "data/vaccinations.csv"
+  }
   vroom::vroom(
-    goog_file,
+    main_file,
     col_select = c(date, key,
                    total_tested,
                    total_confirmed,
@@ -89,6 +93,17 @@ fetchPrepGoogData <- function(period = "week", per_million = TRUE,
         select(-ends_with("_name"))
       }
     } %>%
+    { if (add_vax) {
+      left_join(., vroom::vroom(
+        vax_file,
+        col_select = c(date, location_key, ends_with("administered")),
+        col_types = readr::cols(.default = "d", date = "D",
+                                location_key = "c")) %>%
+          rename(location = location_key,
+                 total_vaccine_doses_administered =
+                   cumulative_vaccine_doses_administered),
+        by = c("location", "date"))
+    }} %>%
     mutate(location = as.factor(location)) %>%
     # compute period stats
     mutate(date = floor_date(date, period)) %>%
@@ -114,6 +129,7 @@ fetchPrepGoogData <- function(period = "week", per_million = TRUE,
     { if (per_million) mutate(., across(c(starts_with("total_"),
                                           starts_with("new_")),
                                         ~ .x / population * 1e6)) else . } %>%
+
     collect() %>%
     pivot_longer(-any_of(c("date", "location", "label", "population")),
                  names_to = "stat", values_to = "value") %>%
@@ -365,7 +381,9 @@ genTsCompPlot <- function(set_name, geo_name, cur_mdl,
         mutate(value = value * sign) %>% ungroup() %>%
         bind_rows(tibble(name = geo_name, inclusion = 1, pos_prob = 1, sign = 1,
                          index = orig_dates, value = as.vector(orig_counts))) %>%
-        { if (scale_peers) mutate(., value = as.vector(scale(value))) else . } %>%
+        { if (scale_peers) group_by(., name) %>%
+            mutate(., value = as.vector(scale(value))) %>%
+            ungroup() else . } %>%
         mutate(index = as.numeric(index - min(index))) %>%
         ggplot(aes(index, value, color = name, alpha = inclusion)) +
         geom_vline(xintercept = as.numeric(eval_date - base_date), linetype = 2,

@@ -2,8 +2,8 @@ source("covidcomp_lib.R", local = TRUE)
 
 ## analysis parameters
 
-refresh_data <- TRUE
-refresh_tscomp <- TRUE
+refresh_data <- FALSE
+refresh_tscomp <- FALSE
 refresh_plots <- TRUE
 # how many months to match on before evaluating
 num_match_months <- 6

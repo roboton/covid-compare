@@ -8,12 +8,13 @@ refresh_interval <- hours(24)
 data_file <- "data/goog_weekly.fst"
 last_update <- file.info(data_file)$mtime
 n_locs <- 3
+exceptions <- str_c(c("Taiwan", "Singapore"), collapse = "|")
 
 # pull in data
 all_locs <- lazy_dt(fst::read_fst(data_file), key_by = "location")
 
 loc_list <- all_locs %>% filter(stat == "new_deceased") %>%
-  filter(!is.na(value) | str_detect(location, "Taiwan")) %>%
+  filter(!is.na(value) | str_detect(location, exceptions)) %>%
   group_by(location) %>%
   arrange(location, date) %>%
   summarise(
@@ -21,13 +22,16 @@ loc_list <- all_locs %>% filter(stat == "new_deceased") %>%
     severity_total = last(value) * last(population) / 1e6) %>%
   ungroup() %>%
   filter(is.finite(severity_total) & severity_total > 0 |
-           str_detect(location, "Taiwan")) %>%
+           str_detect(location, exceptions)) %>%
   mutate(level = str_count(location, ",")) %>%
   arrange(level) %>% select(-level) %>%
   collect()
 
 init_locs <- sample(loc_list$location, 3)
 cur_locs <- init_locs
+
+compare_metrics <- c("deaths" = "total_deceased", "cases" = "total_confirmed",
+                     "tests" = "total_tested")
 
 # for tscomp
 tscomp_summary <- readr::read_rds("data/sets/tscomp_summary.rds")
@@ -37,11 +41,22 @@ set_labels <- tibble(set_names) %>%
   mutate(name = if_else(name != "GLOBAL", countryCodeToName(name), name),
          label = str_glue("{name} (level {level})")) %>%
   pull(label)
+set_names <- setNames(set_names, set_labels)
 
 default_set_name <- "GLOBAL_0"
 
-compare_metrics <- c("deaths" = "total_deceased", "cases" = "total_confirmed",
-                     "tests" = "total_tested")
+# for vax data
+vax_geo_limit <- 250
+vax_dat <- fst::read_fst("data/comp_data_vax.fst")
+vax_set_names <- vax_dat %>% filter(geo_count <= vax_geo_limit) %>%
+  pull(geo) %>% unique()
+vax_set_labels <- tibble(vax_set_names) %>%
+  separate(vax_set_names, c("name", "level")) %>%
+  mutate(name = if_else(name != "GLOBAL", countryCodeToName(name), name),
+         label = str_glue("{name} (level {level})")) %>%
+  pull(label)
+vax_set_names <- setNames(vax_set_names, vax_set_labels)
+vax_default_set_name <- sample(vax_set_names, 1)
 
 # control over mouse over values in plotly plot
 options(scipen = 999, digits = 1)
@@ -157,7 +172,7 @@ ui <- function(request) {
         # data options
         selectizeInput(
           "set_name", "Country/Global",
-          choices = setNames(set_names, set_labels),
+          choices = set_names,
           multiple = FALSE,
           selected = default_set_name,
           options = list(placeholder = 'type to select a country')),
@@ -170,7 +185,41 @@ ui <- function(request) {
         plotlyOutput(
           "tsCompPlot",
           width = if_else(mobile_req, "auto", "auto"),
-          height = if_else(mobile_req, "auto", "auto")
+          # height = if_else(mobile_req, "auto", "auto")
+          height = "800px"
+        )
+      )
+    )
+  )
+  
+  vax_panel <- fluidPage(
+    shinybusy::add_busy_bar(color = "CornflowerBlue", timeout = 800),
+    titlePanel("Covid-19 vaccination"),
+    tags$a(
+      href = "https://github.com/roboton/covid-compare",
+      target = "_blank", "[git]"),
+    tags$a(
+      href = "mailto:roberton@gmail.com",
+      target = "_blank", "[contact]"),
+    tags$span(paste(" Last updated",
+                    round(as.numeric(now() - last_update, units = "hours"), 2),
+                    "hours ago")),
+    sidebarLayout(
+      sidebarPanel(
+        # data options
+        selectizeInput(
+          "vax_set_name", "Country/Global",
+          choices = vax_set_names,
+          multiple = FALSE,
+          selected = vax_default_set_name,
+          options = list(placeholder = 'type to select a country')),
+        width = 2
+      ),
+      mainPanel(
+        plotlyOutput(
+          "vaxPlot",
+          width = if_else(mobile_req, "auto", "auto"),
+          height = "800px"
         )
       )
     )
@@ -178,6 +227,7 @@ ui <- function(request) {
  
   navbarPage("covidcompare.org", position = "fixed-bottom",
              tabPanel("Analysis", analysis_panel),
+             tabPanel("Vaccinations", vax_panel),
              tabPanel("Dashboard", dashboard_panel))
 } 
    
@@ -247,6 +297,38 @@ server <- function(input, output, session) {
     }
     readr::read_rds(fs::path("data", "sets", input$set_name, "tscomp",
                              input$geo_name, ext = "rds"))
+  })
+  
+  output$vaxPlot <- renderPlotly({
+    p <- vax_dat  %>%
+      # geo filter
+      filter(geo == input$vax_set_name) %>%
+      # outlier value filtering
+      # filter(value >= 0) %>%
+      # # scale outcomes between 0 and 1
+      # group_by(name, date) %>%
+      # mutate(value = value / sum(value)) %>%
+      # ungroup() %>%
+      # fix date for frame animation
+      mutate(date = as.character(date)) %>%
+      # # wait until at least x locations %>%
+      # mutate(total_locs = n_distinct(location)) %>%
+      # group_by(date) %>%
+      # filter(n_distinct(location) > total_locs / 2 &
+      #          sum(doses > 0) >= total_locs / 2) %>%
+      # select(-total_locs) %>%
+      # plot
+      mutate(plot_label = str_remove(location, ".*_")) %>%
+      ggplot(aes(doses, value, frame = date, text = label)) +
+      # geom_point(aes(label = label, ids = location)) +
+      geom_text(aes(label = plot_label, ids = plot_label)) +
+      ggtitle(names(vax_set_names)[vax_set_names == input$vax_set_name]) + 
+      ylab("weekly cases/deaths per million") +
+      xlab("cumulative doses per million") +
+      facet_wrap(~ name, scales = "free_y", nrow = 2)
+    
+    ggplotly(p) %>%
+      animation_opts(redraw = FALSE)
   })
   
   # server side location selectize
