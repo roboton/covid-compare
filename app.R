@@ -34,7 +34,9 @@ compare_metrics <- c("deaths" = "total_deceased", "cases" = "total_confirmed",
                      "tests" = "total_tested")
 
 # for tscomp
-tscomp_summary <- readr::read_rds("data/sets/tscomp_summary.rds")
+tscomp_data_file <- "data/sets/tscomp_summary.rds"
+tscomp_summary <- readr::read_rds(tscomp_data_file)
+tscomp_last_update <- file.info(tscomp_data_file)$mtime
 set_names <- unique(tscomp_summary$set_name) 
 set_labels <- tibble(set_names) %>%
   separate(set_names, c("name", "level")) %>%
@@ -47,7 +49,9 @@ default_set_name <- "GLOBAL_0"
 
 # for vax data
 vax_geo_limit <- 250
-vax_dat <- fst::read_fst("data/comp_data_vax.fst")
+vax_data_file <- "data/comp_data_vax.fst"
+vax_dat <- fst::read_fst(vax_data_file)
+vax_last_update <- file.info(vax_data_file)$mtime
 vax_set_names <- vax_dat %>% filter(geo_count <= vax_geo_limit) %>%
   pull(geo) %>% unique()
 vax_set_labels <- tibble(vax_set_names) %>%
@@ -56,7 +60,7 @@ vax_set_labels <- tibble(vax_set_names) %>%
          label = str_glue("{name} (level {level})")) %>%
   pull(label)
 vax_set_names <- setNames(vax_set_names, vax_set_labels)
-vax_default_set_name <- sample(vax_set_names, 1)
+vax_default_set_name <- "US_1" #sample(vax_set_names, 1)
 
 # control over mouse over values in plotly plot
 options(scipen = 999, digits = 1)
@@ -67,16 +71,16 @@ ui <- function(request) {
   dashboard_panel <- fluidPage(
     #shinyjs::useShinyjs(), # for moving showcase code to the bottom
     shinybusy::add_busy_bar(color = "CornflowerBlue", timeout = 800),
-    titlePanel("Covid-19 comparisons"),
+    titlePanel("COVID-19 dashboard"),
     tags$a(
       href = "https://github.com/roboton/covid-compare",
       target = "_blank", "[git]"),
     tags$a(
       href = "mailto:roberton@gmail.com",
       target = "_blank", "[contact]"),
-    tags$span(paste(" Last updated",
-                    round(as.numeric(now() - last_update, units = "hours"), 2),
-                    "hours ago")),
+    tags$div(paste(" Last updated",
+                    round(as.numeric(now() - last_update, units = "days"), 2),
+                    "days ago")),
     sidebarLayout(
       sidebarPanel(
         # data options
@@ -155,18 +159,21 @@ ui <- function(request) {
     )
   )
 
-  analysis_panel <- fluidPage(
+  tscomp_panel <- fluidPage(
     shinybusy::add_busy_bar(color = "CornflowerBlue", timeout = 800),
-    titlePanel("Covid-19 analysis"),
+    titlePanel("COVID-19 comparables"),
     tags$a(
       href = "https://github.com/roboton/covid-compare",
       target = "_blank", "[git]"),
     tags$a(
       href = "mailto:roberton@gmail.com",
       target = "_blank", "[contact]"),
-    tags$span(paste(" Last updated",
-                    round(as.numeric(now() - last_update, units = "hours"), 2),
-                    "hours ago")),
+    tags$a(
+      href = "https://docs.google.com/presentation/d/1GNaVzcFbK_bo5R4avZmq0gpYDTRFFiiiowBR7Ovbr_I/edit#slide=id.p",
+      target = "_blank", "[tutorial]"),
+    tags$div(paste(" Last updated",
+                   round(as.numeric(now() - tscomp_last_update, units = "days"), 2),
+                   "days ago")),
     sidebarLayout(
       sidebarPanel(
         # data options
@@ -179,6 +186,7 @@ ui <- function(request) {
         selectizeInput(
           "geo_name", "Division", choices = NULL, multiple = FALSE,
           options = list(placeholder = 'type to select a division')),
+        tags$div("Plots of a single jurisdictions COVID-19 deaths per million compared against a set of other jurisdictions that had a comparable first six months of the pandemic with respect to weekly deaths per million. See tutorial link above for more."),
         width = 2
       ),
       mainPanel(
@@ -194,16 +202,17 @@ ui <- function(request) {
   
   vax_panel <- fluidPage(
     shinybusy::add_busy_bar(color = "CornflowerBlue", timeout = 800),
-    titlePanel("Covid-19 vaccination"),
+    titlePanel("COVID-19 vaccinations"),
     tags$a(
       href = "https://github.com/roboton/covid-compare",
       target = "_blank", "[git]"),
     tags$a(
       href = "mailto:roberton@gmail.com",
       target = "_blank", "[contact]"),
-    tags$span(paste(" Last updated",
-                    round(as.numeric(now() - last_update, units = "hours"), 2),
-                    "hours ago")),
+    tags$div(paste(" Last updated",
+                    round(as.numeric(now() - vax_last_update, units = "days"), 2),
+                    "days ago")),
+    
     sidebarLayout(
       sidebarPanel(
         # data options
@@ -213,6 +222,7 @@ ui <- function(request) {
           multiple = FALSE,
           selected = vax_default_set_name,
           options = list(placeholder = 'type to select a country')),
+        tags$div("Plots of vaccination doses per million vs COVID-19 deaths/cases per million for each jurisdiction animated over time."),
         width = 2
       ),
       mainPanel(
@@ -226,7 +236,7 @@ ui <- function(request) {
   )
  
   navbarPage("covidcompare.org", position = "fixed-bottom",
-             tabPanel("Analysis", analysis_panel),
+             tabPanel("Comparables", tscomp_panel),
              tabPanel("Vaccinations", vax_panel),
              tabPanel("Dashboard", dashboard_panel))
 } 
@@ -302,7 +312,8 @@ server <- function(input, output, session) {
   output$vaxPlot <- renderPlotly({
     p <- vax_dat  %>%
       # geo filter
-      filter(geo == input$vax_set_name) %>%
+      filter(geo == input$vax_set_name &
+               !location %in% c("US_DC")) %>%
       # outlier value filtering
       # filter(value >= 0) %>%
       # # scale outcomes between 0 and 1
