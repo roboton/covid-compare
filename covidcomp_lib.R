@@ -35,12 +35,16 @@ is_mobile <- function(user_agent, mobile_os = c("Android", "iOS")) {
 fetchPrepGoogData <- function(period = "week", per_million = TRUE,
                               readable_loc = TRUE, add_labels = FALSE,
                               use_cache = FALSE, add_vax = FALSE) {
-  main_file <- "https://storage.googleapis.com/covid19-open-data/v2/main.csv"
-  vax_file <- "https://storage.googleapis.com/covid19-open-data/v3/vaccinations.csv"
-  if (use_cache) {
-    main_file <- "data/main.csv"
-    vax_file <- "data/vaccinations.csv"
+  main_url <- "https://storage.googleapis.com/covid19-open-data/v2/main.csv"
+  vax_url <- "https://storage.googleapis.com/covid19-open-data/v3/vaccinations.csv"
+  main_file <- "data/main.csv"
+  vax_file <- "data/vaccinations.csv"
+  
+  if (!use_cache) {
+    curl::curl_download(main_url, main_file)
+    curl::curl_download(vax_url, vax_file)
   }
+  
   vroom::vroom(
     main_file,
     col_select = c(date, key,
@@ -103,7 +107,8 @@ fetchPrepGoogData <- function(period = "week", per_million = TRUE,
                  total_vaccine_doses_administered =
                    cumulative_vaccine_doses_administered),
         by = c("location", "date"))
-    }} %>%
+      } else { . }
+    } %>%
     mutate(location = as.factor(location)) %>%
     # compute period stats
     mutate(date = floor_date(date, period)) %>%
@@ -135,6 +140,26 @@ fetchPrepGoogData <- function(period = "week", per_million = TRUE,
                  names_to = "stat", values_to = "value") %>%
     mutate(stat = as.factor(stat)) %>%
     filter(is.finite(value) & !is.na(location)) %>%
+    ungroup()
+}
+
+fetchPrepVaxData <- function(use_cache = FALSE) {
+  fetchPrepGoogData(use_cache = use_cache, add_vax = TRUE,
+                               readable_loc = FALSE, add_labels = TRUE) %>%
+    pivot_wider(names_from = stat, values_from = value) %>%
+    select(location, date, label, population,
+           cases = new_confirmed, deaths = new_deceased,
+           doses = total_vaccine_doses_administered) %>%
+    # only rows with all stats available
+    filter(complete.cases(.)) %>%
+    # outcomes
+    pivot_longer(c(cases, deaths)) %>%
+    mutate(geo_level = str_count(location, "_"),
+           geo = if_else(geo_level == 0, "GLOBAL",
+                         str_sub(location, 1, 2))) %>%
+    unite(geo, geo, geo_level) %>%
+    group_by(geo) %>%
+    mutate(geo_count = n_distinct(location)) %>%
     ungroup()
 }
 

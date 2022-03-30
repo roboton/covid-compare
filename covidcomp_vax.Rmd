@@ -1,0 +1,75 @@
+---
+title: "Vaccinations vs Cases/Deaths"
+output: html_notebook
+---
+
+# Data
+
+```{r}
+source("covidcomp_lib.R")
+refresh <- TRUE 
+
+vax_file <- "data/comp_data_vax.fst"
+
+if (!fs::file_exists(vax_file) || refresh) {
+  vax_dat <- fetchPrepGoogData(use_cache = FALSE, add_vax = TRUE,
+                               readable_loc = FALSE, add_labels = TRUE) %>%
+    pivot_wider(names_from = stat, values_from = value) %>%
+    select(location, date, label, population,
+           cases = new_confirmed, deaths = new_deceased,
+           doses = total_vaccine_doses_administered) %>%
+    # only rows with all stats available
+    filter(complete.cases(.)) %>%
+    # outcomes
+    pivot_longer(c(cases, deaths)) %>%
+    mutate(geo_level = str_count(location, "_"),
+           geo = if_else(geo_level == 0, "GLOBAL",
+                         str_sub(location, 1, 2))) %>%
+    unite(geo, geo, geo_level) %>%
+    group_by(geo) %>%
+    mutate(geo_count = n_distinct(location)) %>%
+    ungroup()
+  fst::write_fst(vax_dat, vax_file)
+} else {
+  vax_dat <- fst::read_fst(vax_file)
+}
+```
+
+# Plot
+
+```{r}
+geo_limit <- 250
+
+geo_list <- vax_dat %>% filter(geo_count <= geo_limit) %>%
+  pull(geo) %>% unique()
+
+one_geo <- sample(geo_list, 1)
+
+vax_dat  %>%
+  # geo filter
+  filter(one_geo == geo) %>%
+  # outlier value filtering
+  filter(value >= 0) %>%
+  # # scale outcomes between 0 and 1
+  # group_by(name, date) %>%
+  # mutate(value = value / sum(value)) %>%
+  # ungroup() %>%
+  # fix date for frame animation
+  mutate(date = as.character(date)) %>%
+  # wait until at least x locations %>%
+  mutate(total_locs = n_distinct(location)) %>%
+  group_by(date) %>%
+  filter(n_distinct(location) > total_locs / 2 &
+           sum(doses > 0) >= total_locs / 2) %>%
+  select(-total_locs) %>%
+  # plot
+  ggplot(aes(doses, value, frame = date)) +
+  geom_point(aes(label = label, ids = location)) +
+  ggtitle(one_geo) + 
+  ylab("weekly cases per million") +
+  xlab("cumulative doses per million") +
+  facet_wrap(~ name, scales = "free_y", nrow = 2) -> p
+
+ggplotly(p) %>%
+  animation_opts(redraw = FALSE)
+```

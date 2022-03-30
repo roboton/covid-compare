@@ -2,12 +2,12 @@ source("covidcomp_lib.R", local = TRUE)
 
 ## analysis parameters
 
-refresh_data <- FALSE
-refresh_tscomp <- FALSE
+refresh_data <- TRUE
+refresh_tscomp <- TRUE
 refresh_plots <- TRUE
 # how many months to match on before evaluating
 num_match_months <- 6
-num_eval_months <- 8
+num_eval_months <- 9
 # significance for CausalImpact
 sig_p <- 0.05
 # aggregate to this level of data
@@ -29,8 +29,9 @@ end_date <- eval_date + months(num_eval_months)
 
 ## load covid data
 
-fst_file <- fs::path("data", str_c("comp_data_", death_thresh,
-                                   floor_date(today(), "week")), ext = "fst")
+fst_file <- fs::path("data", str_c("comp_data", death_thresh,
+                                   floor_date(today(), "week"),
+                                   sep = "_"), ext = "fst")
 if (file.exists(fst_file) && !refresh_data) {
   comp_data <- fst::read_fst(fst_file) 
 } else {

@@ -1,0 +1,33 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(dplyr)
+library(lubridate)
+library(tidyr)
+library(ggplot2)
+raceage <- readr::read_csv("https://data.cdc.gov/api/views/qfhf-uhaa/rows.csv?accessType=DOWNLOAD&bom=true&format=true%20target=")
+pop <- readr::read_csv("https://www2.census.gov/programs-surveys/popest/datasets/2010-2019/national/totals/nst-est2019-alldata.csv")
+```
+
+```{r}
+raceage %>%
+  filter(Jurisdiction != "United States") %>%
+  left_join(pop, by = c("Jurisdiction" = "NAME")) %>%
+  mutate(Date = mdy(`Week Ending Date`),
+         DeathsPC = `Number of Deaths` / POPESTIMATE2019,
+         Group = `Race/Ethnicity`) %>%
+  filter(Date < max(Date) - weeks(1)) %>%
+  group_by(Quarter = floor_date(Date, "quarter"), Group) %>%
+  summarise(DeathsPC = sum(DeathsPC, na.rm = TRUE), .groups = "drop") %>%
+  mutate(Year = year(Quarter),
+         Quarter = month(Quarter)) %>%
+  pivot_wider(names_from = Year, values_from = DeathsPC) %>%
+  mutate(change = `2021` / `2020`) %>%
+  select(-starts_with("2")) %>%
+  ggplot(aes(Quarter, change, fill = Group)) +
+  geom_col(position = "dodge")
+```
+

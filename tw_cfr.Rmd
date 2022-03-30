@@ -1,0 +1,161 @@
+---
+title: "Taiwan High Case Fatality Rate"
+output: html_notebook
+---
+
+Question persists as to why Taiwan's COVID-19 Case Fatality Rate (confirmed deaths / confirmed cases) is so high.
+
+```{r}
+library(tidyverse)
+age <- read_csv("https://storage.googleapis.com/covid19-open-data/v3/by-age.csv")
+epi <- read_csv("https://storage.googleapis.com/covid19-open-data/v3/epidemiology.csv")
+```
+# Case fatality rate
+
+One theory is that there was so much under testing at the beginning, the denominator of the case fatality rate is greatly underestimated. One way to avert this is looking at a moving case fatality rate and aligning deaths closer to cases. We look at the 7 day moving average with deaths aligned to cases from 17 days ago.
+
+```{r}
+max_tested <- epi %>%
+  filter(location_key == "TW" & date > lubridate::ymd("2021-04-01")) %>%
+  pull(new_tested) %>% max(na.rm = TRUE)
+
+epi %>%
+  filter(location_key == "TW" & date > lubridate::ymd("2021-04-01")) %>%
+  # mutate(date = lubridate::floor_date(date, "week")) %>%
+  # group_by(date) %>%
+  # summarise(across(-location_key, sum, na.rm = TRUE)) %>%
+  # arrange(date) %>%
+  # filter(date != min(date) & date != max(date)) %>%
+  mutate(new_tested = 0.5 * new_tested / max(new_tested, na.rm = TRUE)) %>%
+  mutate(new_confirmed = lag(new_confirmed, 14)) %>%
+  mutate(roll_deceased = RcppRoll::roll_sum(new_deceased, 7, fill = c(NA, NA, NA),
+                                            na.rm = TRUE),
+         roll_cases = RcppRoll::roll_sum(new_confirmed, 7, fill = c(NA, NA, NA),
+                                         na.rm = TRUE)) %>%
+  mutate(cfr = roll_deceased / roll_cases) %>%
+  ggplot() +
+  geom_line(aes(date, cfr)) +
+  geom_col(aes(date, new_tested), alpha = 0.1) +
+  geom_hline(yintercept = 0.05, lty = 2, alpha = 0.2) +
+  scale_y_continuous(
+    # Features of the first axis
+    name = "case fatality rate",
+    # Add a second axis and specify its features
+    sec.axis = sec_axis(~ . * max_tested * 2, name="tests")
+  ) + ggtitle("Case fatality rate with tests") -> p
+plotly::ggplotly(p)
+
+```
+
+The dashed horizontal line is the ~5% that is unusually high. We can see the case fatality rate persist at levels around or even above 5% even when testing was very high (at current levels). The first jump in CFR (40%!!) could be attributed to under testing but by August (23%), shouldn't have had this issue.
+
+# Older age deaths
+
+Unfortunately I was not able to get deaths by age in Taiwan but I was able to look at cases and see how this compared to the country's case fatality rate compared to some other countries.
+
+```{r}
+age %>% filter(!location_key %in% c("BR")) %>%
+  filter(!str_detect(location_key, "_")) %>%
+  group_by(location_key) %>%
+  summarise(across(starts_with("new_"), sum, na.rm = TRUE),
+            across(starts_with("cumulative_"), last),
+            .groups = "drop") %>%
+  pivot_longer(-location_key) %>%
+  separate(name, into = c("stat", "age_bucket"), sep = "_age_") %>%
+  filter(!stat(str_starts(stat, "cumulative_"))) %>%
+  pivot_wider(names_from = c(stat), values_from = value) %>%
+  select(where(~ !all(is.na(.x)))) %>%
+  mutate(age_bucket = if_else(as.numeric(age_bucket) >= 5, "50+", "49-")) %>%
+  group_by(location_key, age_bucket) %>%
+  summarise(across(everything(), sum, na.rm = TRUE), .groups = "drop") %>%
+  group_by(location_key) %>%
+  mutate(#case_fatality_rate = new_deceased / new_confirmed,
+         pct_cases_over_50 = new_confirmed / sum(new_confirmed, na.rm = TRUE)) %>%
+  
+  left_join(epi %>% filter(!str_detect(location_key, "_")) %>%
+              group_by(location_key) %>%
+              summarise(across(everything(), last)) %>%
+              select(location_key, starts_with("cumulative")) %>%
+              mutate(case_fatality_rate = cumulative_deceased / cumulative_confirmed) %>%
+              select(location_key, case_fatality_rate),
+            by = "location_key") %>%
+  filter(age_bucket == "50+") %>%
+  ggplot(aes(pct_cases_over_50, case_fatality_rate, label = location_key)) +
+  geom_text() +
+  geom_line(stat = "smooth", alpha = 0.2, method = "lm", formula = y ~ x) +
+  ggtitle("Case fatality rate vs % cases over 50+") -> p
+plotly::ggplotly(p)
+```
+
+Taiwan still looks like an unusual outlier here where there is more explaining that difference in CFR than just the increasing percentage of covid cases that are 50 years or older.
+
+```{r}
+tw_deaths <- readr::read_csv("covidtable_taiwan_cdc_death - translated.csv",
+                             na = c("", "NA", "#VALUE!"))
+```
+
+```{r}
+tw_deaths %>%
+  mutate(across(where(is.character), as.factor)) %>%
+  summary()
+```
+```{r}
+tw_deaths_clean <- tw_deaths %>%
+  mutate(across(is.character, ~ str_replace_all(str_to_lower(.x), " / ", "/"))) %>%
+  # Hospital / Isolated Day
+  mutate(
+    age = round(age, -1),
+    onset_date = ymd(`Onset day`),
+    inspection_date = coalesce(
+      ymd(str_extract(`Inspection day`, "([0-9\\/]+) ?(pcr )?positive")),
+      ymd(str_c("2021/", str_extract(`Inspection day`, "([0-9\\/]+) ?(pcr )?positive"))),
+      ymd(`Inspection day`)),
+    hosp_iso_date = coalesce(
+      # M/D format
+      ymd(str_c("2021/", str_extract(`Hospital / Isolated Day`, "[0-9]{1,2}/[0-9]{1,2}"))),
+      #  Y/M/D format
+      ymd(str_extract(`Hospital / Isolated Day`, "2021/[0-9]{1,2}/[0-9]{1,2}")),
+      # Mon, Day format
+      mdy(str_c(str_extract(
+        `Hospital / Isolated Day`,
+        str_c("(", str_c(str_to_lower(month.name), collapse = "|"), ") [0-9]+")), " 2021"))),
+    diagnosed_date = ymd(`Diagnosed day`),
+    death_date = ymd(`Death day`),
+    .keep = "unused")
+```
+```{r}
+tw_deaths_clean %>%
+  group_by(age_bucket = if_else(age < 70, age, 70)) %>%
+  summarise(cumulative_deceased = n()) %>%
+  mutate(location_key = "TW", stat = "cumulative_deceased")
+```
+```{r}
+age %>%
+  filter(!str_detect(location_key, "_")) %>%
+  group_by(location_key) %>%
+  summarise(across(starts_with("new_"), sum, na.rm = TRUE),
+            across(starts_with("cumulative_"), last),
+            .groups = "drop") %>%
+  pivot_longer(-location_key) %>%
+  separate(name, into = c("stat", "age_bucket"), sep = "_age_") %>%
+  filter(str_starts(stat, "cumulative_")) %>%
+  mutate(age_bucket = as.numeric(str_c(age_bucket, "0"))) %>%
+  left_join(
+    tw_deaths_clean %>%
+      group_by(age_bucket = if_else(age < 70, age, 70)) %>%
+      summarise(cumulative_deceased = n()) %>%
+      mutate(location_key = "TW", stat = "cumulative_deceased")) %>%
+  mutate(value = coalesce(cumulative_deceased, value)) %>%
+  select(-cumulative_deceased) %>%
+  group_by(location_key, stat) %>%
+  mutate(value = if_else(any(!is.na(value)) & is.na(value), 0, value)) %>%
+  filter(!is.na(value)) %>%
+  filter(stat %in% c("cumulative_deceased", "cumulative_confirmed")) %>%
+  group_by(location_key) %>%
+  filter(any(stat == "cumulative_deceased" & value > 0)) %>%
+  ungroup() %>% View()
+  ggplot(aes(age_bucket, value, fill = stat)) +
+  geom_col(postion = "dodge") +
+  facet_wrap(~ location_key, scales = "free")
+```
+

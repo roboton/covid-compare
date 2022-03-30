@@ -210,50 +210,64 @@ ggplotly(p)
 
 Below are some examples of this synthetic controls strategy where the dotted vertical line designates the point where the matching ends and the evaluation begins. Ignore the x-axis labels as they are actually relative to the beginning of the pandemic (as defined by being above a certain number of cases per million).
 
-![California, USA](US_1/output/ts_US_CA.png)
-![South Dakota, USA](US_1/output/ts_US_SD.png)
+#### California
+
+```{r}
+readr::read_rds("data/sets/US_1/tscomp/US_CA.rds")
+```
+
+
+#### South Dakota
+
+```{r}
+readr::read_rds("data/sets/US_1/tscomp/US_SD.rds")
+```
 
 Below is a table summarizing the results for each state:
 
 ```{r}
-library(readr)
-read_csv("US_1/output/model_summary.csv") %>%
-  mutate(State = str_remove(ts_id, "US_")) %>%
-  left_join(data.frame(state.abb, state.name), by = c("State" = "state.abb")) %>%
-  mutate(state = coalesce(state.name, State)) %>%
-  select(state, deviance, AbsEffect_Cumulative, p_Cumulative) %>%
-  mutate(across(where(is.numeric), round, digits = 4)) %>%
-  arrange(desc(deviance), p_Cumulative) %>%
+readr::read_rds("data/sets/tscomp_summary.rds") %>%
+  filter(set_name == "US_1") %>%
+  select(label, RelEffect_Cumulative, AbsEffect_Cumulative, p_Cumulative) %>%
+  arrange(p_Cumulative > 0.1, RelEffect_Cumulative > 0, p_Cumulative) %>%
   DT::datatable()
 ```
-
-Guam, New York and Louisiana did better than their comparable counterparts in the last `r num_eval_months` months of the pandemic relative to the first `r num_match_months`. Most other significant states did worse.
 
 ### US County level
 
 Here are a few highlighted counties:
 
-![Miami-Dade County, FL, USA](US_2/output/ts_US_FL_12086.png)
 
-![Philadelphia County, PA, USA](US_2/output/ts_US_PA_42101.png)
+#### Miami-Dade County, FL
 
-![Scott County, IA, USA](US_2/output/ts_US_IA_19163.png)
+```{r}
+readr::read_rds("data/sets/US_2/tscomp/US_FL_12086.rds")
+```
 
-![Eaton County, MI, USA](US_2/output/ts_US_MI_26045.png)
+#### Philadelphia County, PA
 
+```{r}
+readr::read_rds("data/sets/US_2/tscomp/US_PA_42101.rds")
+```
+
+#### Scott County, IA
+
+```{r}
+readr::read_rds("data/sets/US_2/tscomp/US_IA_19163.rds")
+```
+
+#### Eaton County, MI
+
+```{r}
+readr::read_rds("data/sets/US_2/tscomp/US_MI_26045.rds")
+```
 And the complete table of results:
 
 ```{r}
-read_csv("US_2/output/model_summary.csv") %>%
-  left_join(
-    read_csv("https://raw.githubusercontent.com/kjhealy/fips-codes/master/county_fips_master.csv") %>%
-      mutate(ts_id = str_c("US_", state_abbr, "_", str_pad(fips, 5, "left", 0))),
-    by = c("ts_id")) %>%
-  select(fips = fips, County = county_name, State = state_abbr, deviance,
-         AbsEffect_Cumulative, p_Cumulative) %>%
-  mutate(across(where(is.numeric), round, digits = 4)) %>%
-  arrange(desc(deviance), p_Cumulative) %>%
-  mutate(County = str_conv(County, "ISO-8859-2")) %>%
+readr::read_rds("data/sets/tscomp_summary.rds") %>%
+  filter(set_name == "US_2") %>%
+  select(label, RelEffect_Cumulative, AbsEffect_Cumulative, p_Cumulative) %>%
+  arrange(p_Cumulative > 0.1, RelEffect_Cumulative > 0, p_Cumulative) %>%
   DT::datatable()
 ```
 
@@ -261,25 +275,25 @@ We see here a handful of counties (17) seemed to handle the second wave of COVID
 
 ### Global country level
 
-Next is a global country level analysis. Below is Belgium and Poland:
+Next is a global country level analysis. Below is Greece and Poland:
 
-![Greece](GLOBAL_0/output/ts_GR.png)
-![Poland](GLOBAL_0/output/ts_PL.png)
+```{r}
+readr::read_rds("data/sets/GLOBAL_0/tscomp/GR.rds")
+```
+
+```{r}
+readr::read_rds("data/sets/GLOBAL_0/tscomp/PL.rds")
+```
 
 The complete table of results suggests very few better countries and a number of countries in Eastern Europe that struggled to respond to the second wave.
 
 ```{r}
-read_csv("GLOBAL_0/output/model_summary.csv") %>%
-  left_join(
-  read_csv("https://pkgstore.datahub.io/core/country-list/data_csv/data/d7c9d7cfb42cb69f4422dec222dbbaa8/data_csv.csv"), by = c("ts_id" = "Code")) %>%
-  select(ts_id, Name, deviance, AbsEffect_Cumulative, p_Cumulative) %>%
-  mutate(across(where(is.numeric), round, digits = 4)) %>%
-  arrange(desc(deviance), p_Cumulative) %>%
+readr::read_rds("data/sets/tscomp_summary.rds") %>%
+  filter(set_name == "GLOBAL_0") %>%
+  select(label, RelEffect_Cumulative, AbsEffect_Cumulative, p_Cumulative) %>%
+  arrange(p_Cumulative > 0.1, RelEffect_Cumulative > 0, p_Cumulative) %>%
   DT::datatable()
 ```
-
-We see here that only Trinidad and Tabago, Belgium and Iceland managed the second wave better with respect to their comparable peers in the first wave.
-
 ##  Explaining the differences
 
 We try to predict these deviations from comparable counterfactuals to examine how much can additional variation can be explained by other factors.
@@ -397,41 +411,27 @@ tibble(resid = cc_nopol[,1] - sl_mdl$SL.predict) %>%
   lm(resid ~ ., data = .) %>% summary()
 ```
 
-Less than 1% of variation is independently explained by these political factors once we control for all the other county level beta %>%
-slice(-1:-burn) %>%
-pivot_longer(everything()) %>%
-group_by(name) %>%
-summarise(
-inclusion = mean(value != 0),
-pos_prob = if_else(all(value == 0), 0, mean(value[value != 0] > 0)),
-sign = if_else(pos_prob > 0.5, 1, -1)) %>%
-slice_max(inclusion, n = 5) %>%
-left_join(predictors %>% mutate(index = row_number()) %>%
-dplyr::select(-`(Intercept)`) %>%
-pivot_longer(-index), by = "name") %>%
-group_by(name) %>%
-mutate(value = scale(value) * sign) %>%
-ggplot(aes(index, value, color = name)) +
-geom_line() +
-theme(legend.title = element_blank(), legend.position = "bottom")
+Less than 1% of variation is independently explained by these political factors once we control for all the other county level predictors. The coefficient values themselves are not significant with a very slight negative, significant estimate on democratic vote share.
+
+```{r}
 beta %>%
-slice(-1:-burn) %>%
-pivot_longer(everything()) %>%
-group_by(name) %>%
-summarise(
-inclusion = mean(value != 0),
-pos_prob = if_else(all(value == 0), 0, mean(value[value != 0] > 0)),
-sign = if_else(pos_prob > 0.5, 1, -1)) %>%
-slice_max(inclusion, n = 5) %>%
-left_join(predictors %>% mutate(index = row_number()) %>%
-dplyr::select(-`(Intercept)`) %>%
-pivot_longer(-index), by = "name") %>%
-group_by(name) %>%
-mutate(value = scale(value) * sign) %>%
-ggplot(aes(index, value, color = name)) +
-geom_line() +
-theme(legend.title = element_blank(), legend.position = "bottom")
-predictors. The coefficient values themselves are not significant with a very slight negative, significant estimate on democratic vote share.
+  slice(-1:-burn) %>%
+  pivot_longer(everything()) %>%
+  group_by(name) %>%
+  summarise(
+    inclusion = mean(value != 0),
+    pos_prob = if_else(all(value == 0), 0, mean(value[value != 0] > 0)),
+    sign = if_else(pos_prob > 0.5, 1, -1)) %>%
+  slice_max(inclusion, n = 5) %>%
+  left_join(predictors %>% mutate(index = row_number()) %>%
+  dplyr::select(-`(Intercept)`) %>%
+  pivot_longer(-index), by = "name") %>%
+  group_by(name) %>%
+  mutate(value = scale(value) * sign) %>%
+  ggplot(aes(index, value, color = name)) +
+  geom_line() +
+  theme(legend.title = element_blank(), legend.position = "bottom")
+```
 
 #### Without controls
 
